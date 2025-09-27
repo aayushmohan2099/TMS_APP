@@ -1,0 +1,827 @@
+username,block,status,reason,row
+BMM_ACHHNERA_Agra,Achhnera,created,,2
+BMM_AKOLA_Agra,Akola,created,,3
+BMM_BAH_Agra,Bah,created,,4
+BMM_BARAULI_Agra,Barauli Ahir,created,,5
+BMM_BICHPURI_Agra,Bichpuri,created,,6
+BMM_Etmadpur_Agra,Etmadpur,created,,7
+BMM_Fatehabad_Agra,Fatehabad,created,,8
+BMM_FatehpurSikri_Agra,Fatehpur Sikri,created,,9
+BMM_Jagner_Agra,Jagner,created,,10
+BMM_JaitpurKalan_Agra,Jaitpur Kalan,created,,11
+BMM_Khandauli_Agra,Khandauli,created,,12
+BMM_Kheragarh_Agra,Kheragarh,created,,13
+BMM_Pinahat_Agra,Pinahat,created,,14
+BMM_Saiyan_Agra,Saiyan,created,,15
+BMM_Shamsabad_Agra,Shamsabad,created,,16
+BMM_Araon_Firozabad,Araon,created,,17
+BMM_Eka_Firozabad,Eka,created,,18
+BMM_Firozabad_Firozabad,Firozabad,created,,19
+BMM_Hathwant_Firozabad,Hathwant,created,,20
+BMM_Jasrana_Firozabad,Jasrana,created,,21
+BMM_Madanpur_Firozabad,Madanpur,created,,22
+BMM_Narkhi_Firozabad,Narkhi,created,,23
+BMM_Shikohabad_Firozabad,Shikohabad,created,,24
+BMM_Tundla_Firozabad,Tundla,created,,25
+BMM_Barnahal_Mainpuri,Barnahal,created,,26
+BMM_Bewar_Mainpuri,Bewar,created,,27
+BMM_Ghiror_Mainpuri,Ghiror,created,,28
+BMM_Jageer_Mainpuri,Jageer,created,,29
+BMM_Karhal_Mainpuri,Karhal,created,,30
+BMM_Kishni_Mainpuri,Kishni,created,,31
+BMM_Kuraoli_Mainpuri,Kuraoli,created,,32
+BMM_Mainpuri_Mainpuri,Mainpuri,created,,33
+BMM_Sultanganj_Mainpuri,Sultanganj,created,,34
+BMM_Baldeo_Mathura,Baldeo,created,,35
+BMM_Chaumuha_Mathura,Chaumuha,created,,36
+BMM_Chhata_Mathura,Chhata,created,,37
+BMM_Farah_Mathura,Farah,created,,38
+BMM_Govardhan_Mathura,Govardhan,created,,39
+BMM_Mat_Mathura,Mat,created,,40
+BMM_Mathura_Mathura,Mathura,created,,41
+BMM_Nandgaon_Mathura,Nandgaon,created,,42
+BMM_Nohjhil_Mathura,Nohjhil,created,,43
+BMM_Raya_Mathura,Raya,created,,44
+BMM_Gangiri_Aligarh,Gangiri,created,,45
+BMM_Akrabad_Aligarh,Akrabad,created,,46
+BMM_Atrauli_Aligarh,Atrauli,created,,47
+BMM_Bijauli_Aligarh,Bijauli,created,,48
+BMM_Chandaus_Aligarh,Chandaus,created,,49
+BMM_Dhanipur_Aligarh,Dhanipur,created,,50
+BMM_Gonda_Aligarh,Gonda,created,,51
+BMM_Iglas_Aligarh,Iglas,created,,52
+BMM_JawanSikanderpur_Aligarh,Jawan Sikanderpur,created,,53
+BMM_Khair_Aligarh,Khair,created,,54
+BMM_Lodha_Aligarh,Lodha,created,,55
+BMM_Tappal_Aligarh,Tappal,created,,56
+BMM_Awagarh_Etah,Awagarh,created,,57
+BMM_Jaithara_Etah,Jaithara,created,,58
+BMM_Sakit_Etah,Sakit,created,,59
+BMM_Aliganj_Etah,Aliganj,created,,60
+BMM_Jalesar_Etah,Jalesar,created,,61
+BMM_Marehra_Etah,Marehra,created,,62
+BMM_NidhauliKalan_Etah,Nidhauli Kalan,created,,63
+BMM_Shitalpur_Etah,Shitalpur,created,,64
+BMM_Hasayan_Hathras,Hasayan,created,,65
+BMM_Hathras_Hathras,Hathras,created,,66
+BMM_Mursan_Hathras,Mursan,created,,67
+BMM_Sadabad_Hathras,Sadabad,created,,68
+BMM_Sasni_Hathras,Sasni,created,,69
+BMM_Sehpau_Hathras,Sehpau,created,,70
+BMM_Sikandrarao_Hathras,Sikandrarao,created,,71
+BMM_Amanpur_Kasganj,Amanpur,created,,72
+BMM_GanjDundwara_Kasganj,Ganj Dundwara,created,,73
+BMM_Soron_Kasganj,Soron,created,,74
+BMM_Kasganj_Kasganj,Kasganj,created,,75
+BMM_Patiyali_Kasganj,Patiyali,created,,76
+BMM_Sahawar_Kasganj,Sahawar,created,,77
+BMM_Sidhpura_Kasganj,Sidhpura,created,,78
+BMM_Bhiti_Ambedkar_Nagar,Bhiti,created,,79
+BMM_Bhiyawan_Ambedkar_Nagar,Bhiyawan,created,,80
+BMM_RamNagar_Ambedkar_Nagar,Ram Nagar,created,,81
+BMM_Tanda_Ambedkar_Nagar,Tanda,created,,82
+BMM_Akbarpur_Ambedkar_Nagar,Akbarpur,created,,83
+BMM_Baskhari_Ambedkar_Nagar,Baskhari,created,,84
+BMM_JahangirGanj_Ambedkar_Nagar,Jahangir Ganj,created,,85
+BMM_JalalPur_Ambedkar_Nagar,Jalal Pur,created,,86
+BMM_Katehari_Ambedkar_Nagar,Katehari,created,,87
+BMM_Jagdishpur_Amethi,Jagdishpur,created,,88
+BMM_Jamo_Amethi,Jamo,created,,89
+BMM_ShukulBazar_Amethi,Shukul Bazar,created,,90
+BMM_Amethi_Amethi,Amethi,created,,91
+BMM_Bahadurpur_Amethi,Bahadurpur,created,,92
+BMM_Bhadar_Amethi,Bhadar,created,,93
+BMM_Bhetua_Amethi,Bhetua,created,,94
+BMM_Gauriganj_Amethi,Gauriganj,created,,95
+BMM_MusafirKhana_Amethi,Musafir Khana,created,,96
+BMM_Sangrampur_Amethi,Sangrampur,created,,97
+BMM_Shahgarh_Amethi,Shahgarh,created,,98
+BMM_Singhpur_Amethi,Singhpur,created,,99
+BMM_Tiloi_Amethi,Tiloi,created,,100
+BMM_Amaniganj_Ayodhya,Amaniganj,created,,101
+BMM_Bikapur_Ayodhya,Bikapur,created,,102
+BMM_Hariyangatanganj_Ayodhya,Hariyangatanganj,created,,103
+BMM_Masodha_Ayodhya,Masodha,created,,104
+BMM_Mawai_Ayodhya,Mawai,created,,105
+BMM_MayaBazar_Ayodhya,Maya Bazar,created,,106
+BMM_Milkipur_Ayodhya,Milkipur,created,,107
+BMM_PuraBazar_Ayodhya,Pura Bazar,created,,108
+BMM_Rudauli_Ayodhya,Rudauli,created,,109
+BMM_Sohawal_Ayodhya,Sohawal,created,,110
+BMM_Tarun_Ayodhya,Tarun,created,,111
+BMM_Nindaura_Barabanki,Nindaura,created,,112
+BMM_Puredalai_Barabanki,Puredalai,created,,113
+BMM_BaniKodar_Barabanki,Bani Kodar,created,,114
+BMM_Banki_Barabanki,Banki,created,,115
+BMM_Dariyabad_Barabanki,Dariyabad,created,,116
+BMM_Dewa_Barabanki,Dewa,created,,117
+BMM_Fatehpur_Barabanki,Fatehpur,created,,118
+BMM_Haidargarh_Barabanki,Haidargarh,created,,119
+BMM_Harakh_Barabanki,Harakh,created,,120
+BMM_Masauli_Barabanki,Masauli,created,,121
+BMM_Ramnagar_Barabanki,Ramnagar,created,,122
+BMM_Sidhaur_Barabanki,Sidhaur,created,,123
+BMM_SirauliGauspur_Barabanki,Sirauli Gauspur,created,,124
+BMM_Suratganj_Barabanki,Suratganj,created,,125
+BMM_Trivediganj_Barabanki,Trivediganj,created,,126
+BMM_AkhandNagar_Sultanpur,Akhand Nagar,created,,127
+BMM_Baldirai_Sultanpur,Baldirai,created,,128
+BMM_Bhadaiya_Sultanpur,Bhadaiya,created,,129
+BMM_Dhanpatganj_Sultanpur,Dhanpatganj,created,,130
+BMM_Dostpur_Sultanpur,Dostpur,created,,131
+BMM_Dubepur_Sultanpur,Dubepur,created,,132
+BMM_Jaisinghpur_Sultanpur,Jaisinghpur,created,,133
+BMM_Kadipur_Sultanpur,Kadipur,created,,134
+BMM_Karaudikala_Sultanpur,Karaudikala,created,,135
+BMM_Kurebhar_Sultanpur,Kurebhar,created,,136
+BMM_Kurwar_Sultanpur,Kurwar,created,,137
+BMM_Lambhua_Sultanpur,Lambhua,created,,138
+BMM_Motigarpur_Sultanpur,Motigarpur,created,,139
+BMM_P.P.Kamaicha_Sultanpur,P.P.Kamaicha,created,,140
+BMM_Mahrajganj_Azamgarh,Mahrajganj,created,,141
+BMM_Ahiraula_Azamgarh,Ahiraula,created,,142
+BMM_Atraulia_Azamgarh,Atraulia,created,,143
+BMM_Azmatgarh_Azamgarh,Azmatgarh,created,,144
+BMM_Bilariyaganj_Azamgarh,Bilariyaganj,created,,145
+BMM_Haraiya_Azamgarh,Haraiya,created,,146
+BMM_Jahanaganj_Azamgarh,Jahanaganj,created,,147
+BMM_Koilsa_Azamgarh,Koilsa,created,,148
+BMM_Lalganj_Azamgarh,Lalganj,created,,149
+BMM_Martinganj_Azamgarh,Martinganj,created,,150
+BMM_Mehnagar_Azamgarh,Mehnagar,created,,151
+BMM_Mirzapur_Azamgarh,Mirzapur,created,,152
+BMM_Mohammadpur_Azamgarh,Mohammadpur,created,,153
+BMM_Palhana_Azamgarh,Palhana,created,,154
+BMM_Palhani_Azamgarh,Palhani,created,,155
+BMM_Pawai_Azamgarh,Pawai,created,,156
+BMM_Phulpur_Azamgarh,Phulpur,created,,157
+BMM_RaniKiSarai_Azamgarh,Rani Ki Sarai,created,,158
+BMM_Sathiyaon_Azamgarh,Sathiyaon,created,,159
+BMM_Tahbarpur_Azamgarh,Tahbarpur,created,,160
+BMM_Tarwa_Azamgarh,Tarwa,created,,161
+BMM_Thekma_Azamgarh,Thekma,created,,162
+BMM_Bansdih_Ballia,Bansdih,created,,163
+BMM_Chilkahar_Ballia,Chilkahar,created,,164
+BMM_Garwar_Ballia,Garwar,created,,165
+BMM_Hanumanganj_Ballia,Hanumanganj,created,,166
+BMM_Maniar_Ballia,Maniar,created,,167
+BMM_Pandah_Ballia,Pandah,created,,168
+BMM_Rasra_Ballia,Rasra,created,,169
+BMM_Sohanv_Ballia,Sohanv,created,,170
+BMM_Bairia_Ballia,Bairia,created,,171
+BMM_Belhari_Ballia,Belhari,created,,172
+BMM_Beruarbari_Ballia,Beruarbari,created,,173
+BMM_Dubhar_Ballia,Dubhar,created,,174
+BMM_Murlichhapra_Ballia,Murlichhapra,created,,175
+BMM_Nagra_Ballia,Nagra,created,,176
+BMM_Navanagar_Ballia,Navanagar,created,,177
+BMM_Reoti_Ballia,Reoti,created,,178
+BMM_Siar_Ballia,Siar,created,,179
+BMM_Badraon_Mau,Badraon,created,,180
+BMM_DohriGhat_Mau,Dohri Ghat,created,,181
+BMM_FatehpurMadaun_Mau,Fatehpur Madaun,created,,182
+BMM_Ghosi_Mau,Ghosi,created,,183
+BMM_Kopaganj_Mau,Kopaganj,created,,184
+BMM_MohammadabadGohana_Mau,Mohammadabad Gohana,created,,185
+BMM_Pardaha_Mau,Pardaha,created,,186
+BMM_Ranipur_Mau,Ranipur,created,,187
+BMM_Ratanpura_Mau,Ratanpura,created,,188
+BMM_Baheri_Bareilly,Baheri,created,,189
+BMM_Majhgawan_Bareilly,Majhgawan,created,,190
+BMM_Nawabganj_Bareilly,Nawabganj,created,,191
+BMM_Shergarh_Bareilly,Shergarh,created,,192
+BMM_AalampurJafarabad_Bareilly,Aalampur Jafarabad,created,,193
+BMM_Bhadpura_Bareilly,Bhadpura,created,,194
+BMM_Bhojipura_Bareilly,Bhojipura,created,,195
+BMM_Bhuta_Bareilly,Bhuta,created,,196
+BMM_BithiriChainpur_Bareilly,Bithiri Chainpur,created,,197
+BMM_Damkhauda_Bareilly,Damkhauda,created,,198
+BMM_Faridpur_Bareilly,Faridpur,created,,199
+BMM_FatehganjWest_Bareilly,Fatehganj West,created,,200
+BMM_Kyara_Bareilly,Kyara,created,,201
+BMM_Mirganj_Bareilly,Mirganj,created,,202
+BMM_Ramnagar_Bareilly,Ramnagar,created,,203
+BMM_Ambiapur_Budaun,Ambiapur,created,,204
+BMM_Asafpur_Budaun,Asafpur,created,,205
+BMM_QadarChowk_Budaun,Qadar Chowk,created,,206
+BMM_Salarpur_Budaun,Salarpur,created,,207
+BMM_Usawan_Budaun,Usawan,created,,208
+BMM_Wazirganj_Budaun,Wazirganj,created,,209
+BMM_Bisauli_Budaun,Bisauli,created,,210
+BMM_Dahgavan_Budaun,Dahgavan,created,,211
+BMM_Dataganj_Budaun,Dataganj,created,,212
+BMM_Islamnagar_Budaun,Islamnagar,created,,213
+BMM_Jagat_Budaun,Jagat,created,,214
+BMM_Mion_Budaun,Mion,created,,215
+BMM_Sahaswan_Budaun,Sahaswan,created,,216
+BMM_Samrer_Budaun,Samrer,created,,217
+BMM_Ujhani_Budaun,Ujhani,created,,218
+BMM_Puranpur_Pilibhit,Puranpur,created,,219
+BMM_Amariya_Pilibhit,Amariya,created,,220
+BMM_Barkhera_Pilibhit,Barkhera,created,,221
+BMM_Bilsanda_Pilibhit,Bilsanda,created,,222
+BMM_Bisalpur_Pilibhit,Bisalpur,created,,223
+BMM_Lalaurikhera_Pilibhit,Lalaurikhera,created,,224
+BMM_Marori_Pilibhit,Marori,created,,225
+BMM_Banda_Shahjahanpur,Banda,created,,226
+BMM_BhawalKhera_Shahjahanpur,Bhawal Khera,created,,227
+BMM_Dadrol_Shahjahanpur,Dadrol,created,,228
+BMM_Jaitipur_Shahjahanpur,Jaitipur,created,,229
+BMM_Jalalabad_Shahjahanpur,Jalalabad,created,,230
+BMM_Kalan_Shahjahanpur,Kalan,created,,231
+BMM_Kanth_Shahjahanpur,Kanth,created,,232
+BMM_KhudaganjKatra_Shahjahanpur,Khudaganj Katra,created,,233
+BMM_Khutar_Shahjahanpur,Khutar,created,,234
+BMM_Madnapur_Shahjahanpur,Madnapur,created,,235
+BMM_Mirzapur_Shahjahanpur,Mirzapur,created,,236
+BMM_Nigohi_Shahjahanpur,Nigohi,created,,237
+BMM_Powayan_Shahjahanpur,Powayan,created,,238
+BMM_Sindhauli_Shahjahanpur,Sindhauli,created,,239
+BMM_Tilhar_Shahjahanpur,Tilhar,created,,240
+BMM_Harraiya_Basti,Harraiya,created,,241
+BMM_Kudaraha_Basti,Kudaraha,created,,242
+BMM_SaltauaGopalPur_Basti,Saltaua Gopal Pur,created,,243
+BMM_VikramJot_Basti,Vikram Jot,created,,244
+BMM_Bahadurpur_Basti,Bahadurpur,created,,245
+BMM_Bankati_Basti,Bankati,created,,246
+BMM_Basti_Basti,Basti,created,,247
+BMM_Dubauliya_Basti,Dubauliya,created,,248
+BMM_Gaur_Basti,Gaur,created,,249
+BMM_Kaptanganj_Basti,Kaptanganj,created,,250
+BMM_ParasRampur_Basti,Paras Rampur,created,,251
+BMM_Ramnagar_Basti,Ramnagar,created,,252
+BMM_Rudauli_Basti,Rudauli,created,,253
+BMM_SauGhat_Basti,Sau Ghat,created,,254
+BMM_Baghauli_Sant_Kabir_Nagar,Baghauli,created,,255
+BMM_Pauli_Sant_Kabir_Nagar,Pauli,created,,256
+BMM_Santha_Sant_Kabir_Nagar,Santha,created,,257
+BMM_BelharKala_Sant_Kabir_Nagar,Belhar Kala,created,,258
+BMM_HainsarBazar_Sant_Kabir_Nagar,Hainsar Bazar,created,,259
+BMM_Khalilabad_Sant_Kabir_Nagar,Khalilabad,created,,260
+BMM_Mehdawal_Sant_Kabir_Nagar,Mehdawal,created,,261
+BMM_NathNagar_Sant_Kabir_Nagar,Nath Nagar,created,,262
+BMM_Semariyawan_Sant_Kabir_Nagar,Semariyawan,created,,263
+BMM_Khesraha_Siddharthnagar,Khesraha,created,,264
+BMM_Bansi_Siddharthnagar,Bansi,created,,265
+BMM_Barhni_Siddharthnagar,Barhni,created,,266
+BMM_Bhanwapur_Siddharthnagar,Bhanwapur,created,,267
+BMM_Birdpur_Siddharthnagar,Birdpur,created,,268
+BMM_Domariyaganj_Siddharthnagar,Domariyaganj,created,,269
+BMM_Itwa_Siddharthnagar,Itwa,created,,270
+BMM_Jogia_Siddharthnagar,Jogia,created,,271
+BMM_Khuniyaon_Siddharthnagar,Khuniyaon,created,,272
+BMM_Lotan_Siddharthnagar,Lotan,created,,273
+BMM_Mithwal_Siddharthnagar,Mithwal,created,,274
+BMM_Naugarh_Siddharthnagar,Naugarh,created,,275
+BMM_Shoharatgarh_Siddharthnagar,Shoharatgarh,created,,276
+BMM_UskaBazar_Siddharthnagar,Uska Bazar,created,,277
+BMM_Baberu_Banda,Baberu,created,,278
+BMM_Bisanda_Banda,Bisanda,created,,279
+BMM_Kamasin_Banda,Kamasin,created,,280
+BMM_BadokharKhurd_Banda,Badokhar Khurd,created,,281
+BMM_Jaspura_Banda,Jaspura,created,,282
+BMM_Mahuva_Banda,Mahuva,created,,283
+BMM_Naraini_Banda,Naraini,created,,284
+BMM_Tindwari_Banda,Tindwari,created,,285
+BMM_Pahari_Chitrakoot,Pahari,created,,286
+BMM_Karwi_Chitrakoot,Karwi,created,,287
+BMM_Manikpur_Chitrakoot,Manikpur,created,,288
+BMM_Mau_Chitrakoot,Mau,created,,289
+BMM_Ramnagar_Chitrakoot,Ramnagar,created,,290
+BMM_Gohand_Hamirpur,Gohand,created,,291
+BMM_Kurara_Hamirpur,Kurara,created,,292
+BMM_Maudaha_Hamirpur,Maudaha,created,,293
+BMM_Muskara_Hamirpur,Muskara,created,,294
+BMM_Rath_Hamirpur,Rath,created,,295
+BMM_Sarila_Hamirpur,Sarila,created,,296
+BMM_Sumerpur_Hamirpur,Sumerpur,created,,297
+BMM_Kabrai_Mahoba,Kabrai,created,,298
+BMM_Charkhari_Mahoba,Charkhari,created,,299
+BMM_Jaitpur_Mahoba,Jaitpur,created,,300
+BMM_Panwari_Mahoba,Panwari,created,,301
+BMM_Huzoorpur_Bahraich,Huzoorpur,created,,302
+BMM_Nawabganj_Bahraich,Nawabganj,created,,303
+BMM_Balaha_Bahraich,Balaha,created,,304
+BMM_Chitaura_Bahraich,Chitaura,created,,305
+BMM_Jarwal_Bahraich,Jarwal,created,,306
+BMM_Kaisarganj_Bahraich,Kaisarganj,created,,307
+BMM_Mahasi_Bahraich,Mahasi,created,,308
+BMM_Mihinpurwa_Bahraich,Mihinpurwa,created,,309
+BMM_Payagpur_Bahraich,Payagpur,created,,310
+BMM_Phakharpur_Bahraich,Phakharpur,created,,311
+BMM_Risia_Bahraich,Risia,created,,312
+BMM_Shivpur_Bahraich,Shivpur,created,,313
+BMM_Tejwapur_Bahraich,Tejwapur,created,,314
+BMM_Visheshwarganj_Bahraich,Visheshwarganj,created,,315
+BMM_Shriduttganj_Balrampur,Shriduttganj,created,,316
+BMM_Balrampur_Balrampur,Balrampur,created,,317
+BMM_GaindasBujurg_Balrampur,Gaindas Bujurg,created,,318
+BMM_Gaisri_Balrampur,Gaisri,created,,319
+BMM_HarriyaSatgharwa_Balrampur,Harriya Satgharwa,created,,320
+BMM_Pachpedwa_Balrampur,Pachpedwa,created,,321
+BMM_ReheraBazaar_Balrampur,Rehera Bazaar,created,,322
+BMM_Tulsipur_Balrampur,Tulsipur,created,,323
+BMM_Utraula_Balrampur,Utraula,created,,324
+BMM_Babhanjot_Gonda,Babhanjot,created,,325
+BMM_Nawabganj_Gonda,Nawabganj,created,,326
+BMM_PandriKripal_Gonda,Pandri Kripal,created,,327
+BMM_Rupaideeh_Gonda,Rupaideeh,created,,328
+BMM_Wazirganj_Gonda,Wazirganj,created,,329
+BMM_Belsar_Gonda,Belsar,created,,330
+BMM_Chhapia_Gonda,Chhapia,created,,331
+BMM_Colonelganj_Gonda,Colonelganj,created,,332
+BMM_Haldharmau_Gonda,Haldharmau,created,,333
+BMM_Itiathok_Gonda,Itiathok,created,,334
+BMM_Jhanjhari_Gonda,Jhanjhari,created,,335
+BMM_KatraBazar_Gonda,Katra Bazar,created,,336
+BMM_Mankapur_Gonda,Mankapur,created,,337
+BMM_Mujehana_Gonda,Mujehana,created,,338
+BMM_Paraspur_Gonda,Paraspur,created,,339
+BMM_Tarabganj_Gonda,Tarabganj,created,,340
+BMM_Jamunaha_Shrawasti,Jamunaha,created,,341
+BMM_Ekona_Shrawasti,Ekona,created,,342
+BMM_Gilaula_Shrawasti,Gilaula,created,,343
+BMM_HariharpurRani_Shrawasti,Hariharpur Rani,created,,344
+BMM_Sirsiya_Shrawasti,Sirsiya,created,,345
+BMM_GauriBazar_Deoria,Gauri Bazar,created,,346
+BMM_Baitalpur_Deoria,Baitalpur,created,,347
+BMM_Bankata_Deoria,Bankata,created,,348
+BMM_Barhaj_Deoria,Barhaj,created,,349
+BMM_Bhagalpur_Deoria,Bhagalpur,created,,350
+BMM_Bhaluani_Deoria,Bhaluani,created,,351
+BMM_Bhatni_Deoria,Bhatni,created,,352
+BMM_BhatparRani_Deoria,Bhatpar Rani,created,,353
+BMM_DeoriaSadar_Deoria,Deoria Sadar,created,,354
+BMM_DesaiDeoria_Deoria,Desai Deoria,created,,355
+BMM_Lar_Deoria,Lar,created,,356
+BMM_PatharDewa_Deoria,Pathar Dewa,created,,357
+BMM_RampurKarkhana_Deoria,Rampur Karkhana,created,,358
+BMM_Rudrapur_Deoria,Rudrapur,created,,359
+BMM_Salempur_Deoria,Salempur,created,,360
+BMM_Tarkalua_Deoria,Tarkalua,created,,361
+BMM_Bansgaon_Gorakhpur,Bansgaon,created,,362
+BMM_Brahmpur_Gorakhpur,Brahmpur,created,,363
+BMM_Campierganj_Gorakhpur,Campierganj,created,,364
+BMM_Barhalganj_Gorakhpur,Barhalganj,created,,365
+BMM_Belghat_Gorakhpur,Belghat,created,,366
+BMM_Bharohiya_Gorakhpur,Bharohiya,created,,367
+BMM_Bhathat_Gorakhpur,Bhathat,created,,368
+BMM_Chargawan_Gorakhpur,Chargawan,created,,369
+BMM_Gagaha_Gorakhpur,Gagaha,created,,370
+BMM_Gola_Gorakhpur,Gola,created,,371
+BMM_JangalKaudia_Gorakhpur,Jangal Kaudia,created,,372
+BMM_KauriRam_Gorakhpur,Kauri Ram,created,,373
+BMM_Khajni_Gorakhpur,Khajni,created,,374
+BMM_Khorabar_Gorakhpur,Khorabar,created,,375
+BMM_Pali_Gorakhpur,Pali,created,,376
+BMM_Pipraich_Gorakhpur,Pipraich,created,,377
+BMM_Piprauli_Gorakhpur,Piprauli,created,,378
+BMM_Sahjanawa_Gorakhpur,Sahjanawa,created,,379
+BMM_Sardarnagar_Gorakhpur,Sardarnagar,created,,380
+BMM_Uruwa_Gorakhpur,Uruwa,created,,381
+BMM_Vishunpura_Kushinagar,Vishunpura,created,,382
+BMM_Dudhahi_Kushinagar,Dudhahi,created,,383
+BMM_Fazilnagar_Kushinagar,Fazilnagar,created,,384
+BMM_Hata_Kushinagar,Hata,created,,385
+BMM_Kaptainganj_Kushinagar,Kaptainganj,created,,386
+BMM_Kasaya_Kushinagar,Kasaya,created,,387
+BMM_Khadda_Kushinagar,Khadda,created,,388
+BMM_Motichak_Kushinagar,Motichak,created,,389
+BMM_NebuaNaurangia_Kushinagar,Nebua Naurangia,created,,390
+BMM_Padrauna_Kushinagar,Padrauna,created,,391
+BMM_Ramkola_Kushinagar,Ramkola,created,,392
+BMM_Seorahi_Kushinagar,Seorahi,created,,393
+BMM_Sukrauli_Kushinagar,Sukrauli,created,,394
+BMM_Tamkuhiraj_Kushinagar,Tamkuhiraj,created,,395
+BMM_Mahrajganj_Mahrajganj,Mahrajganj,created,,396
+BMM_Mithaura_Mahrajganj,Mithaura,created,,397
+BMM_Nautanwa_Mahrajganj,Nautanwa,created,,398
+BMM_Nichlaul_Mahrajganj,Nichlaul,created,,399
+BMM_Paniyara_Mahrajganj,Paniyara,created,,400
+BMM_Partawal_Mahrajganj,Partawal,created,,401
+BMM_Bridgemanganj_Mahrajganj,Bridgemanganj,created,,402
+BMM_Dhani_Mahrajganj,Dhani,created,,403
+BMM_Ghughli_Mahrajganj,Ghughli,created,,404
+BMM_Lakshmipur_Mahrajganj,Lakshmipur,created,,405
+BMM_Pharenda_Mahrajganj,Pharenda,created,,406
+BMM_Siswa_Mahrajganj,Siswa,created,,407
+BMM_Jalaun_Jalaun,Jalaun,created,,408
+BMM_Rampura_Jalaun,Rampura,created,,409
+BMM_Dakore_Jalaun,Dakore,created,,410
+BMM_Kadaura_Jalaun,Kadaura,created,,411
+BMM_Konch_Jalaun,Konch,created,,412
+BMM_Kuthaund_Jalaun,Kuthaund,created,,413
+BMM_Madhogarh_Jalaun,Madhogarh,created,,414
+BMM_Maheva_Jalaun,Maheva,created,,415
+BMM_Nadigaon_Jalaun,Nadigaon,created,,416
+BMM_Babina_Jhansi,Babina,created,,417
+BMM_Badagaon_Jhansi,Badagaon,created,,418
+BMM_Bamaur_Jhansi,Bamaur,created,,419
+BMM_Bangra_Jhansi,Bangra,created,,420
+BMM_Chirgaon_Jhansi,Chirgaon,created,,421
+BMM_Gursarai_Jhansi,Gursarai,created,,422
+BMM_Mauranipur_Jhansi,Mauranipur,created,,423
+BMM_Moth_Jhansi,Moth,created,,424
+BMM_Mandawara_Lalitpur,Mandawara,created,,425
+BMM_Bar_Lalitpur,Bar,created,,426
+BMM_Birdha_Lalitpur,Birdha,created,,427
+BMM_Jakhaura_Lalitpur,Jakhaura,created,,428
+BMM_Mehroni_Lalitpur,Mehroni,created,,429
+BMM_Talbehat_Lalitpur,Talbehat,created,,430
+BMM_Achchalda_Auraiya,Achchalda,created,,431
+BMM_Ajitmal_Auraiya,Ajitmal,created,,432
+BMM_Auraiya_Auraiya,Auraiya,created,,433
+BMM_Bhagyanagar_Auraiya,Bhagyanagar,created,,434
+BMM_Bidhuna_Auraiya,Bidhuna,created,,435
+BMM_ErwaKatra_Auraiya,Erwa Katra,created,,436
+BMM_Sahar_Auraiya,Sahar,created,,437
+BMM_Barhpura_Etawah,Barhpura,created,,438
+BMM_Basrehar_Etawah,Basrehar,created,,439
+BMM_Bharthana_Etawah,Bharthana,created,,440
+BMM_Chakarnagar_Etawah,Chakarnagar,created,,441
+BMM_Jaswantnagar_Etawah,Jaswantnagar,created,,442
+BMM_Mahewa_Etawah,Mahewa,created,,443
+BMM_Sefai_Etawah,Sefai,created,,444
+BMM_Takha_Etawah,Takha,created,,445
+BMM_Nawabganj_Farrukhabad,Nawabganj,created,,446
+BMM_Rajepur_Farrukhabad,Rajepur,created,,447
+BMM_Barhpur_Farrukhabad,Barhpur,created,,448
+BMM_Kaimganj_Farrukhabad,Kaimganj,created,,449
+BMM_Kamalganj_Farrukhabad,Kamalganj,created,,450
+BMM_Mohamdabad_Farrukhabad,Mohamdabad,created,,451
+BMM_Shamsabad_Farrukhabad,Shamsabad,created,,452
+BMM_Akbarpur_Kanpur_Dehat,Akbarpur,created,,453
+BMM_Amrodha_Kanpur_Dehat,Amrodha,created,,454
+BMM_Derapur_Kanpur_Dehat,Derapur,created,,455
+BMM_Jhinjhak_Kanpur_Dehat,Jhinjhak,created,,456
+BMM_Maitha_Kanpur_Dehat,Maitha,created,,457
+BMM_Malasa_Kanpur_Dehat,Malasa,created,,458
+BMM_Rajpur_Kanpur_Dehat,Rajpur,created,,459
+BMM_Rasulabad_Kanpur_Dehat,Rasulabad,created,,460
+BMM_Sandalpur_Kanpur_Dehat,Sandalpur,created,,461
+BMM_Sarbankhera_Kanpur_Dehat,Sarbankhera,created,,462
+BMM_Bhitargaon_Kanpur_Nagar,Bhitargaon,created,,463
+BMM_Bilhaur_Kanpur_Nagar,Bilhaur,created,,464
+BMM_Chaubeypur_Kanpur_Nagar,Chaubeypur,created,,465
+BMM_Ghatampur_Kanpur_Nagar,Ghatampur,created,,466
+BMM_Kakwan_Kanpur_Nagar,Kakwan,created,,467
+BMM_Kalyanpur_Kanpur_Nagar,Kalyanpur,created,,468
+BMM_Patara_Kanpur_Nagar,Patara,created,,469
+BMM_Sarsol_Kanpur_Nagar,Sarsol,created,,470
+BMM_Shivrajpur_Kanpur_Nagar,Shivrajpur,created,,471
+BMM_Vidhunu_Kanpur_Nagar,Vidhunu,created,,472
+BMM_Chhibramau_Kannauj,Chhibramau,created,,473
+BMM_Gughrapur_Kannauj,Gughrapur,created,,474
+BMM_Haseran_Kannauj,Haseran,created,,475
+BMM_Jalalabad_Kannauj,Jalalabad,created,,476
+BMM_Kannauj_Kannauj,Kannauj,created,,477
+BMM_Saurikh_Kannauj,Saurikh,created,,478
+BMM_Talgram_Kannauj,Talgram,created,,479
+BMM_Umarda_Kannauj,Umarda,created,,480
+BMM_Sandila_Hardoi,Sandila,created,,481
+BMM_Ahirori_Hardoi,Ahirori,created,,482
+BMM_Bawan_Hardoi,Bawan,created,,483
+BMM_Behendar_Hardoi,Behendar,created,,484
+BMM_Bharawan_Hardoi,Bharawan,created,,485
+BMM_Bharkhani_Hardoi,Bharkhani,created,,486
+BMM_Bilgram_Hardoi,Bilgram,created,,487
+BMM_Hariyawan_Hardoi,Hariyawan,created,,488
+BMM_Harpalpur_Hardoi,Harpalpur,created,,489
+BMM_Kachauna_Hardoi,Kachauna,created,,490
+BMM_Kothawan_Hardoi,Kothawan,created,,491
+BMM_Madhoganj_Hardoi,Madhoganj,created,,492
+BMM_Mallawan_Hardoi,Mallawan,created,,493
+BMM_Pihani_Hardoi,Pihani,created,,494
+BMM_Sandi_Hardoi,Sandi,created,,495
+BMM_Shahabad_Hardoi,Shahabad,created,,496
+BMM_Sursa_Hardoi,Sursa,created,,497
+BMM_Tandiyawan_Hardoi,Tandiyawan,created,,498
+BMM_Todarpur_Hardoi,Todarpur,created,,499
+BMM_Bankeyganj_Lakhimpur_Kheri,Bankeyganj,created,,500
+BMM_Dhaurhara_Lakhimpur_Kheri,Dhaurhara,created,,501
+BMM_Isanagar_Lakhimpur_Kheri,Isanagar,created,,502
+BMM_RamiaBehar_Lakhimpur_Kheri,Ramia Behar,created,,503
+BMM_Behjam_Lakhimpur_Kheri,Behjam,created,,504
+BMM_Bijuwa_Lakhimpur_Kheri,Bijuwa,created,,505
+BMM_Kumbhigola_Lakhimpur_Kheri,Kumbhigola,created,,506
+BMM_Lakhimpur_Lakhimpur_Kheri,Lakhimpur,created,,507
+BMM_Mitauli_Lakhimpur_Kheri,Mitauli,created,,508
+BMM_Mohammadi_Lakhimpur_Kheri,Mohammadi,created,,509
+BMM_Nakaha_Lakhimpur_Kheri,Nakaha,created,,510
+BMM_Nighasan_Lakhimpur_Kheri,Nighasan,created,,511
+BMM_Palia_Lakhimpur_Kheri,Palia,created,,512
+BMM_Pasgawan_Lakhimpur_Kheri,Pasgawan,created,,513
+BMM_Phoolbehar_Lakhimpur_Kheri,Phoolbehar,created,,514
+BMM_Bakshi-Ka-Talab_Lucknow,Bakshi-Ka-Talab,created,,515
+BMM_Chinhat_Lucknow,Chinhat,created,,516
+BMM_Gosaiganj_Lucknow,Gosaiganj,created,,517
+BMM_Kakori_Lucknow,Kakori,created,,518
+BMM_Mal_Lucknow,Mal,created,,519
+BMM_Malihabad_Lucknow,Malihabad,created,,520
+BMM_Mohanlalganj_Lucknow,Mohanlalganj,created,,521
+BMM_Sarojaninagar_Lucknow,Sarojaninagar,created,,522
+BMM_Mahrajganj_Rae_Bareli,Mahrajganj,created,,523
+BMM_Amawan_Rae_Bareli,Amawan,created,,524
+BMM_Bachharawan_Rae_Bareli,Bachharawan,created,,525
+BMM_Chhatoh_Rae_Bareli,Chhatoh,created,,526
+BMM_Dalmau_Rae_Bareli,Dalmau,created,,527
+BMM_DeenshahGaura_Rae_Bareli,Deenshah Gaura,created,,528
+BMM_Dih_Rae_Bareli,Dih,created,,529
+BMM_Harchandpur_Rae_Bareli,Harchandpur,created,,530
+BMM_Jagatpur_Rae_Bareli,Jagatpur,created,,531
+BMM_Khiron_Rae_Bareli,Khiron,created,,532
+BMM_Lalganj_Rae_Bareli,Lalganj,created,,533
+BMM_Rahi_Rae_Bareli,Rahi,created,,534
+BMM_Rohania_Rae_Bareli,Rohania,created,,535
+BMM_Salon_Rae_Bareli,Salon,created,,536
+BMM_Sareni_Rae_Bareli,Sareni,created,,537
+BMM_Sataon_Rae_Bareli,Sataon,created,,538
+BMM_Shivgarh_Rae_Bareli,Shivgarh,created,,539
+BMM_Unchahar_Rae_Bareli,Unchahar,created,,540
+BMM_Biswan_Sitapur,Biswan,created,,541
+BMM_Ailiya_Sitapur,Ailiya,created,,542
+BMM_Behta_Sitapur,Behta,created,,543
+BMM_Gondlamau_Sitapur,Gondlamau,created,,544
+BMM_Hargaon_Sitapur,Hargaon,created,,545
+BMM_Kasmanda_Sitapur,Kasmanda,created,,546
+BMM_Khairabad_Sitapur,Khairabad,created,,547
+BMM_Laharpur_Sitapur,Laharpur,created,,548
+BMM_Machhrehta_Sitapur,Machhrehta,created,,549
+BMM_Mahmudabad_Sitapur,Mahmudabad,created,,550
+BMM_Maholi_Sitapur,Maholi,created,,551
+BMM_Misrikh_Sitapur,Misrikh,created,,552
+BMM_Pahala_Sitapur,Pahala,created,,553
+BMM_Parsendi_Sitapur,Parsendi,created,,554
+BMM_Pisawan_Sitapur,Pisawan,created,,555
+BMM_RampurMathura_Sitapur,Rampur Mathura,created,,556
+BMM_Reusa_Sitapur,Reusa,created,,557
+BMM_Sakran_Sitapur,Sakran,created,,558
+BMM_Sidhauli_Sitapur,Sidhauli,created,,559
+BMM_Nawabganj_Unnao,Nawabganj,created,,560
+BMM_Asoha_Unnao,Asoha,created,,561
+BMM_Auras_Unnao,Auras,created,,562
+BMM_Bangarmau_Unnao,Bangarmau,created,,563
+BMM_Bichhiya_Unnao,Bichhiya,created,,564
+BMM_Bighapur_Unnao,Bighapur,created,,565
+BMM_FatehpurChaurasi_Unnao,Fatehpur Chaurasi,created,,566
+BMM_GanjMoradabad_Unnao,Ganj Moradabad,created,,567
+BMM_Hasanganj_Unnao,Hasanganj,created,,568
+BMM_Hilauli_Unnao,Hilauli,created,,569
+BMM_Mianganj_Unnao,Mianganj,created,,570
+BMM_Purwa_Unnao,Purwa,created,,571
+BMM_Safipur_Unnao,Safipur,created,,572
+BMM_SikandarpurKaran_Unnao,Sikandarpur Karan,created,,573
+BMM_SikandarpurSarausi_Unnao,Sikandarpur Sarausi,created,,574
+BMM_Sumerpur_Unnao,Sumerpur,created,,575
+BMM_Baghpat_Baghpat,Baghpat,created,,576
+BMM_Baraut_Baghpat,Baraut,created,,577
+BMM_Binauli_Baghpat,Binauli,created,,578
+BMM_Chhaprauli_Baghpat,Chhaprauli,created,,579
+BMM_Khekra_Baghpat,Khekra,created,,580
+BMM_Pilana_Baghpat,Pilana,created,,581
+BMM_Agauta_Bulandshahr,Agauta,created,,582
+BMM_Anupshahr_Bulandshahr,Anupshahr,created,,583
+BMM_Araniya_Bulandshahr,Araniya,created,,584
+BMM_BhawanBahadurNagar_Bulandshahr,Bhawan Bahadur Nagar,created,,585
+BMM_Bulandshahr_Bulandshahr,Bulandshahr,created,,586
+BMM_Danpur_Bulandshahr,Danpur,created,,587
+BMM_Dibai_Bulandshahr,Dibai,created,,588
+BMM_Gulaothi_Bulandshahr,Gulaothi,created,,589
+BMM_Jahangirabad_Bulandshahr,Jahangirabad,created,,590
+BMM_Khurja_Bulandshahr,Khurja,created,,591
+BMM_Lakhaothi_Bulandshahr,Lakhaothi,created,,592
+BMM_Pahasu_Bulandshahr,Pahasu,created,,593
+BMM_Shikarpur_Bulandshahr,Shikarpur,created,,594
+BMM_Sikandrabad_Bulandshahr,Sikandrabad,created,,595
+BMM_Syana_Bulandshahr,Syana,created,,596
+BMM_Unchagaon_Bulandshahr,Unchagaon,created,,597
+BMM_Bisrakh_Gautam_Buddha_Nagar,Bisrakh,created,,598
+BMM_Dadri_Gautam_Buddha_Nagar,Dadri,created,,599
+BMM_Jewar_Gautam_Buddha_Nagar,Jewar,created,,600
+BMM_Bhojpur_Ghaziabad,Bhojpur,created,,601
+BMM_Loni_Ghaziabad,Loni,created,,602
+BMM_Muradnagar_Ghaziabad,Muradnagar,created,,603
+BMM_Rajapur_Ghaziabad,Rajapur,created,,604
+BMM_Dhaulana_Hapur,Dhaulana,created,,605
+BMM_GarhMukteshwar_Hapur,Garh Mukteshwar,created,,606
+BMM_Hapur_Hapur,Hapur,created,,607
+BMM_Simbhawali_Hapur,Simbhawali,created,,608
+BMM_Rajpura_Meerut,Rajpura,created,,609
+BMM_Daurala_Meerut,Daurala,created,,610
+BMM_Hastinapur_Meerut,Hastinapur,created,,611
+BMM_Janikhurd_Meerut,Janikhurd,created,,612
+BMM_Kharkhoda_Meerut,Kharkhoda,created,,613
+BMM_Machra_Meerut,Machra,created,,614
+BMM_MawanaKalan_Meerut,Mawana Kalan,created,,615
+BMM_Meerut_Meerut,Meerut,created,,616
+BMM_Parikshitgarh_Meerut,Parikshitgarh,created,,617
+BMM_Rohta_Meerut,Rohta,created,,618
+BMM_Sardhana_Meerut,Sardhana,created,,619
+BMM_SarurpurKhurd_Meerut,Sarurpur Khurd,created,,620
+BMM_Aurai_Bhadohi,Aurai,created,,621
+BMM_Abhauli_Bhadohi,Abhauli,created,,622
+BMM_Bhadohi_Bhadohi,Bhadohi,created,,623
+BMM_Deegh_Bhadohi,Deegh,created,,624
+BMM_Gyanpur_Bhadohi,Gyanpur,created,,625
+BMM_Suriyavan_Bhadohi,Suriyavan,created,,626
+BMM_Hallia_Mirzapur,Hallia,created,,627
+BMM_Nagar(City)_Mirzapur,Nagar (City),created,,628
+BMM_Pahari_Mirzapur,Pahari,created,,629
+BMM_Rajgarh_Mirzapur,Rajgarh,created,,630
+BMM_Chhanvey_Mirzapur,Chhanvey,created,,631
+BMM_Jamalpur_Mirzapur,Jamalpur,created,,632
+BMM_Kon_Mirzapur,Kon,created,,633
+BMM_Lalganj_Mirzapur,Lalganj,created,,634
+BMM_Majhawa_Mirzapur,Majhawa,created,,635
+BMM_Narainpur_Mirzapur,Narainpur,created,,636
+BMM_Patehra_Mirzapur,Patehra,created,,637
+BMM_Shikhar_Mirzapur,Shikhar,created,,638
+BMM_Chatra_Sonbhadra,Chatra,created,,639
+BMM_Babhani_Sonbhadra,Babhani,created,,640
+BMM_Chopan_Sonbhadra,Chopan,created,,641
+BMM_Dudhi_Sonbhadra,Dudhi,created,,642
+BMM_Ghorawal_Sonbhadra,Ghorawal,created,,643
+BMM_Karma_Sonbhadra,Karma,created,,644
+BMM_Kone_Sonbhadra,Kone,created,,645
+BMM_Myorpur_Sonbhadra,Myorpur,created,,646
+BMM_Nagwa_Sonbhadra,Nagwa,created,,647
+BMM_Robertsganj_Sonbhadra,Robertsganj,created,,648
+BMM_Amroha_Amroha,Amroha,created,,649
+BMM_Dhanaura_Amroha,Dhanaura,created,,650
+BMM_Gajraula_Amroha,Gajraula,created,,651
+BMM_Gangeshwari_Amroha,Gangeshwari,created,,652
+BMM_Hasanpur_Amroha,Hasanpur,created,,653
+BMM_Joya_Amroha,Joya,created,,654
+BMM_Kotwali_Bijnor,Kotwali,created,,655
+BMM_Najibabad_Bijnor,Najibabad,created,,656
+BMM_Afzalgarh_Bijnor,Afzalgarh,created,,657
+BMM_BudhanpurSeohara_Bijnor,Budhanpur Seohara,created,,658
+BMM_Dhampur_Bijnor,Dhampur,created,,659
+BMM_Haldaur(KhariJhalu)_Bijnor,Haldaur(Khari Jhalu),created,,660
+BMM_Jalilpur_Bijnor,Jalilpur,created,,661
+BMM_Kiratpur_Bijnor,Kiratpur,created,,662
+BMM_MohammedpurDeomal_Bijnor,Mohammedpur Deomal,created,,663
+BMM_Nehtaur_Bijnor,Nehtaur,created,,664
+BMM_Noorpur_Bijnor,Noorpur,created,,665
+BMM_BhagatpurTanda_Moradabad,Bhagatpur Tanda,created,,666
+BMM_Bilari_Moradabad,Bilari,created,,667
+BMM_Chhajlet_Moradabad,Chhajlet,created,,668
+BMM_Dilari_Moradabad,Dilari,created,,669
+BMM_Kundarki_Moradabad,Kundarki,created,,670
+BMM_Moradabad_Moradabad,Moradabad,created,,671
+BMM_MundaPandey_Moradabad,Munda Pandey,created,,672
+BMM_Thakurdwara_Moradabad,Thakurdwara,created,,673
+BMM_Saidnagar_Rampur,Saidnagar,created,,674
+BMM_Bilaspur_Rampur,Bilaspur,created,,675
+BMM_Chamraon_Rampur,Chamraon,created,,676
+BMM_Milak_Rampur,Milak,created,,677
+BMM_Shahabad_Rampur,Shahabad,created,,678
+BMM_Suar_Rampur,Suar,created,,679
+BMM_Asmauli_Sambhal,Asmauli,created,,680
+BMM_Baniyakhera_Sambhal,Baniyakhera,created,,681
+BMM_Gunnaur_Sambhal,Gunnaur,created,,682
+BMM_Junawai_Sambhal,Junawai,created,,683
+BMM_Panwasa_Sambhal,Panwasa,created,,684
+BMM_Rajpura_Sambhal,Rajpura,created,,685
+BMM_Sambhal_Sambhal,Sambhal,created,,686
+BMM_Bahjoi_Sambhal,Bahjoi,created,,687
+BMM_Hathgaon_Fatehpur,Hathgaon,created,,688
+BMM_Airayan_Fatehpur,Airayan,created,,689
+BMM_Amauli_Fatehpur,Amauli,created,,690
+BMM_Asothar_Fatehpur,Asothar,created,,691
+BMM_Bahua_Fatehpur,Bahua,created,,692
+BMM_Bhitaura_Fatehpur,Bhitaura,created,,693
+BMM_Devmai_Fatehpur,Devmai,created,,694
+BMM_Dhata_Fatehpur,Dhata,created,,695
+BMM_Haswa_Fatehpur,Haswa,created,,696
+BMM_Khajuha_Fatehpur,Khajuha,created,,697
+BMM_Malwan_Fatehpur,Malwan,created,,698
+BMM_Telyani_Fatehpur,Telyani,created,,699
+BMM_Vijayipur_Fatehpur,Vijayipur,created,,700
+BMM_Kaushambi_Kaushambi,Kaushambi,created,,701
+BMM_Manjhanpur_Kaushambi,Manjhanpur,created,,702
+BMM_Chail_Kaushambi,Chail,created,,703
+BMM_Kara_Kaushambi,Kara,created,,704
+BMM_Mooratganj_Kaushambi,Mooratganj,created,,705
+BMM_Nevada_Kaushambi,Nevada,created,,706
+BMM_Sarsawan_Kaushambi,Sarsawan,created,,707
+BMM_Sirathu_Kaushambi,Sirathu,created,,708
+BMM_AspurDeosara_Pratapgarh,Aspur Deosara,created,,709
+BMM_BabaBelkharnathDham_Pratapgarh,Baba Belkharnath Dham,created,,710
+BMM_Babaganj_Pratapgarh,Babaganj,created,,711
+BMM_Bihar_Pratapgarh,Bihar,created,,712
+BMM_Gaura_Pratapgarh,Gaura,created,,713
+BMM_Kalakankar_Pratapgarh,Kalakankar,created,,714
+BMM_Kunda_Pratapgarh,Kunda,created,,715
+BMM_Lakshamanpur_Pratapgarh,Lakshamanpur,created,,716
+BMM_Lalganj_Pratapgarh,Lalganj,created,,717
+BMM_Magraura_Pratapgarh,Magraura,created,,718
+BMM_Mandhata_Pratapgarh,Mandhata,created,,719
+BMM_Patti_Pratapgarh,Patti,created,,720
+BMM_Pratapgarh(Sadar)_Pratapgarh,Pratapgarh (Sadar),created,,721
+BMM_RampurSanramgarh_Pratapgarh,Rampur Sanramgarh,created,,722
+BMM_SandwaChandrika_Pratapgarh,Sandwa Chandrika,created,,723
+BMM_Sangipur_Pratapgarh,Sangipur,created,,724
+BMM_Shivgarh_Pratapgarh,Shivgarh,created,,725
+BMM_Bahria_Prayagraj,Bahria,created,,726
+BMM_Koraon_Prayagraj,Koraon,created,,727
+BMM_Manda_Prayagraj,Manda,created,,728
+BMM_Bahadurpur_Prayagraj,Bahadurpur,created,,729
+BMM_Bhagwatpur_Prayagraj,Bhagwatpur,created,,730
+BMM_Chaka_Prayagraj,Chaka,created,,731
+BMM_Dhanupur_Prayagraj,Dhanupur,created,,732
+BMM_Handia_Prayagraj,Handia,created,,733
+BMM_Holagarh_Prayagraj,Holagarh,created,,734
+BMM_Jasra_Prayagraj,Jasra,created,,735
+BMM_Karchhana_Prayagraj,Karchhana,created,,736
+BMM_Kaudhiyara_Prayagraj,Kaudhiyara,created,,737
+BMM_Kaurihar_Prayagraj,Kaurihar,created,,738
+BMM_Mauaima_Prayagraj,Mauaima,created,,739
+BMM_Meja_Prayagraj,Meja,created,,740
+BMM_Phulpur_Prayagraj,Phulpur,created,,741
+BMM_Pratappur_Prayagraj,Pratappur,created,,742
+BMM_Sahson_Prayagraj,Sahson,created,,743
+BMM_Saidabad_Prayagraj,Saidabad,created,,744
+BMM_Shankargarh_Prayagraj,Shankargarh,created,,745
+BMM_Soraon_Prayagraj,Soraon,created,,746
+BMM_SringverpurDham_Prayagraj,Sringverpur Dham,created,,747
+BMM_Uruwan_Prayagraj,Uruwan,created,,748
+BMM_Baghara_Muzaffarnagar,Baghara,created,,749
+BMM_Budhana_Muzaffarnagar,Budhana,created,,750
+BMM_Charthawal_Muzaffarnagar,Charthawal,created,,751
+BMM_Jansath_Muzaffarnagar,Jansath,created,,752
+BMM_Khatauli_Muzaffarnagar,Khatauli,created,,753
+BMM_Morna_Muzaffarnagar,Morna,created,,754
+BMM_Muzaffarnagar_Muzaffarnagar,Muzaffarnagar,created,,755
+BMM_Purkaji_Muzaffarnagar,Purkaji,created,,756
+BMM_Shahpur_Muzaffarnagar,Shahpur,created,,757
+BMM_BalliaKheri_Saharanpur,Ballia Kheri,created,,758
+BMM_Deoband_Saharanpur,Deoband,created,,759
+BMM_Gangoh_Saharanpur,Gangoh,created,,760
+BMM_Muzaffarabad_Saharanpur,Muzaffarabad,created,,761
+BMM_Nagal_Saharanpur,Nagal,created,,762
+BMM_Nakur_Saharanpur,Nakur,created,,763
+BMM_Nanauta_Saharanpur,Nanauta,created,,764
+BMM_Puwarka_Saharanpur,Puwarka,created,,765
+BMM_RampurManiharan_Saharanpur,Rampur Maniharan,created,,766
+BMM_SadauliQadeem_Saharanpur,Sadauli Qadeem,created,,767
+BMM_Sarsawan_Saharanpur,Sarsawan,created,,768
+BMM_Kairana_Shamli,Kairana,created,,769
+BMM_Kandhla_Shamli,Kandhla,created,,770
+BMM_Shamli_Shamli,Shamli,created,,771
+BMM_ThanaBhawan_Shamli,Thana Bhawan,created,,772
+BMM_Un_Shamli,Un,created,,773
+BMM_Chahniya_Chandauli,Chahniya,created,,774
+BMM_Berahani_Chandauli,Berahani,created,,775
+BMM_Chakiya_Chandauli,Chakiya,created,,776
+BMM_Chandauli_Chandauli,Chandauli,created,,777
+BMM_Dhanapur_Chandauli,Dhanapur,created,,778
+BMM_Naugarh_Chandauli,Naugarh,created,,779
+BMM_Niyamatabad_Chandauli,Niyamatabad,created,,780
+BMM_Sahabganj_Chandauli,Sahabganj,created,,781
+BMM_Sakaldiha_Chandauli,Sakaldiha,created,,782
+BMM_Devkali_Ghazipur,Devkali,created,,783
+BMM_Mardah_Ghazipur,Mardah,created,,784
+BMM_Revatipur_Ghazipur,Revatipur,created,,785
+BMM_Sadat_Ghazipur,Sadat,created,,786
+BMM_Varachakwar_Ghazipur,Varachakwar,created,,787
+BMM_Virno_Ghazipur,Virno,created,,788
+BMM_Bhadaura_Ghazipur,Bhadaura,created,,789
+BMM_Bhanwarkol_Ghazipur,Bhanwarkol,created,,790
+BMM_Ghazipur_Ghazipur,Ghazipur,created,,791
+BMM_Jakhania_Ghazipur,Jakhania,created,,792
+BMM_Karanda_Ghazipur,Karanda,created,,793
+BMM_Kasimabad_Ghazipur,Kasimabad,created,,794
+BMM_Manihari_Ghazipur,Manihari,created,,795
+BMM_Mohammadabad_Ghazipur,Mohammadabad,created,,796
+BMM_Saidpur_Ghazipur,Saidpur,created,,797
+BMM_Zamania_Ghazipur,Zamania,created,,798
+BMM_MachchaliShahar_Jaunpur,Machchali Shahar,created,,799
+BMM_RamNagar_Jaunpur,Ram Nagar,created,,800
+BMM_BadlaPur_Jaunpur,Badla Pur,created,,801
+BMM_Baksha_Jaunpur,Baksha,created,,802
+BMM_Barasathi_Jaunpur,Barasathi,created,,803
+BMM_DharmaPur_Jaunpur,Dharma Pur,created,,804
+BMM_Dobhi_Jaunpur,Dobhi,created,,805
+BMM_JalalPur_Jaunpur,Jalal Pur,created,,806
+BMM_KaranjaKala_Jaunpur,Karanja Kala,created,,807
+BMM_Kerakat_Jaunpur,Kerakat,created,,808
+BMM_Khuthan_Jaunpur,Khuthan,created,,809
+BMM_MaharajGanj_Jaunpur,Maharaj Ganj,created,,810
+BMM_Mariyahu_Jaunpur,Mariyahu,created,,811
+BMM_MuftiGanj_Jaunpur,Mufti Ganj,created,,812
+BMM_MungraBadshahPur_Jaunpur,Mungra Badshah Pur,created,,813
+BMM_RamPur_Jaunpur,Ram Pur,created,,814
+BMM_ShahGanj_Jaunpur,Shah Ganj,created,,815
+BMM_Sikrara_Jaunpur,Sikrara,created,,816
+BMM_Sirkoni_Jaunpur,Sirkoni,created,,817
+BMM_SuithaKala_Jaunpur,Suitha Kala,created,,818
+BMM_SujanGanj_Jaunpur,Sujan Ganj,created,,819
+BMM_Arajiline_Varanasi,Arajiline,created,,820
+BMM_Baragaon_Varanasi,Baragaon,created,,821
+BMM_Chiraigaon_Varanasi,Chiraigaon,created,,822
+BMM_Cholapur_Varanasi,Cholapur,created,,823
+BMM_Harahua_Varanasi,Harahua,created,,824
+BMM_KashiVidyapeeth_Varanasi,Kashi Vidyapeeth,created,,825
+BMM_Pindra_Varanasi,Pindra,created,,826
+BMM_Sevapuri_Varanasi,Sevapuri,created,,827
