@@ -1,0 +1,230 @@
+{% load static %}
+{% load custom_tags %}
+
+{# Ensure groupable_values_json is present when this fragment is rendered via AJAX #}
+<script id="__groupable_values_json" type="application/json">{{ groupable_values_json|default:'{}'|safe }}</script>
+
+<div class="container-fluid">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+      <button type="button" id="delSelectAll" class="btn btn-sm btn-outline-secondary">Select All</button>
+      <button type="button" id="delUnselectAll" class="btn btn-sm btn-outline-secondary">Unselect All</button>
+      <button type="button" id="delRefresh" class="btn btn-sm btn-primary">Apply Filters</button>
+    </div>
+  </div>
+
+  <div class="table-responsive delete-scroll" style="overflow:auto;">
+    <form method="post" id="deleteBeneficiariesForm" action="{% url 'bmmu_delete_beneficiaries' %}">
+      {% csrf_token %}
+      <table class="table table-sm table-bordered table-delete" style="min-width:1200px;">
+        <thead class="table-dark">
+          <tr>
+            <th style="width:60px;">Sel</th>
+            {% for item in field_list %}
+              {% with field_name=item.0 verbose_name=item.1 %}
+                {% if field_name != 'id' %}
+                  <th style="min-width:140px; white-space:nowrap;">
+                    <div class="d-flex flex-column">
+                      <div class="d-flex justify-content-between align-items-center">
+                        <strong>{{ verbose_name|title }}</strong>
+                        <small class="text-muted" style="font-size:11px;">(filter)</small>
+                      </div>
+
+                      <div class="mt-1">
+                        <div class="btn-group">
+                          <button type="button" class="btn btn-sm btn-light dropdown-toggle col-filter-btn" data-bs-toggle="dropdown" aria-expanded="false" data-field="{{ field_name }}">
+                            Filter
+                          </button>
+                          <div class="dropdown-menu dropdown-filter" style="max-height:280px; overflow:auto; padding:.5rem;" data-field="{{ field_name }}">
+                            <div class="dropdown-filter-items"></div>
+                            <div class="d-flex justify-content-between mt-2">
+                              <button type="button" class="btn btn-sm btn-outline-secondary filter-clear">Clear</button>
+                              <button type="button" class="btn btn-sm btn-primary filter-apply">Apply</button>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+                  </th>
+                {% endif %}
+              {% endwith %}
+            {% endfor %}
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for obj in page_obj %}
+            <tr>
+              <td><input type="checkbox" name="delete_ids" value="{{ obj.id }}"></td>
+              {% for item in field_list %}
+                {% with field_name=item.0 verbose_name=item.1 %}
+                  {% if field_name != 'id' %}
+                    <td style="white-space:normal;">{{ obj|attr:field_name }}</td>
+                  {% endif %}
+                {% endwith %}
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="{{ field_list|length|add:'0' }}" class="text-center">No beneficiaries found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </form>
+  </div>
+
+  <!-- pagination (AJAX-aware: data-page attributes) -->
+  {% if paginator %}
+    <nav aria-label="Page navigation example" class="mt-2">
+      <ul class="pagination justify-content-center">
+        {% if page_obj.has_previous %}
+          <li class="page-item"><a class="page-link page-link-ajax" href="#" data-page="{{ page_obj.previous_page_number }}">Previous</a></li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">Previous</span></li>
+        {% endif %}
+        {% for num in paginator.page_range %}
+          {% if page_obj.number == num %}
+            <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+          {% elif num > page_obj.number|add:'-5' and num < page_obj.number|add:'5' %}
+            <li class="page-item"><a class="page-link page-link-ajax" href="#" data-page="{{ num }}">{{ num }}</a></li>
+          {% endif %}
+        {% endfor %}
+        {% if page_obj.has_next %}
+          <li class="page-item"><a class="page-link page-link-ajax" href="#" data-page="{{ page_obj.next_page_number }}">Next</a></li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">Next</span></li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
+</div>
+
+<script>
+  (function(){
+    // read groupable values that wrapper injected (this fragment includes the JSON script tag)
+    const GROUPABLE_VALUES = (function(){
+      try {
+        return JSON.parse(document.getElementById('__groupable_values_json')?.textContent || '{}');
+      } catch(e) { return {}; }
+    }());
+
+    // populate dropdowns with checkboxes from GROUPABLE_VALUES
+    document.querySelectorAll('.dropdown-filter').forEach(menu => {
+      const field = menu.dataset.field;
+      const container = menu.querySelector('.dropdown-filter-items');
+      container.innerHTML = ''; // clear
+      const vals = GROUPABLE_VALUES[field] || [];
+      vals.forEach((v, idx) => {
+        const label = document.createElement('label');
+        label.className = 'd-block mb-1';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = v;
+        cb.className = 'me-2 filter-checkbox';
+        cb.id = `del_${field}_${idx}`;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(String(v)));
+        container.appendChild(label);
+      });
+    });
+
+    // wire apply/clear (filters)
+    document.querySelectorAll('.filter-apply').forEach(btn => btn.addEventListener('click', function(){
+      const menu = this.closest('.dropdown-filter');
+      const field = menu.dataset.field;
+      const checked = Array.from(menu.querySelectorAll('.filter-checkbox:checked')).map(i=>i.value);
+      const params = new URLSearchParams(window.location.search);
+
+      // replace the filter param for this field
+      params.delete('filter_' + field);
+      if (checked.length > 0) params.set('filter_' + field, checked.join(','));
+
+      // keep search/sort from toolbar if present
+      const q = document.getElementById('globalSearch')?.value?.trim();
+      if (q) params.set('search', q);
+      const sortBy = document.getElementById('toolbarSortBy')?.value;
+      const order = document.getElementById('toolbarOrder')?.value;
+      if (sortBy) params.set('sort_by', sortBy);
+      if (order) params.set('order', order);
+
+      // fetch the main fragment (bmmu) with params so the wrapper re-renders and the modal will be reloaded by wrapper open logic.
+      // But to keep inside modal we directly reload this delete fragment endpoint with same params.
+      const url = '/dashboard/load/bmmu_delete/?' + params.toString();
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.text()).then(html => {
+          // replace only the modal container contents
+          const container = document.getElementById('deleteBeneficiariesContainer');
+          if (container) {
+            container.innerHTML = html;
+            // execute inline scripts in inserted fragment (if any)
+            // call fragmentInit on wrapper - wrapper will rewire events
+            if (typeof window.fragmentInit === 'function') window.fragmentInit();
+          }
+        }).catch(e => console.error(e));
+    }));
+
+    document.querySelectorAll('.filter-clear').forEach(btn => btn.addEventListener('click', function(){
+      const menu = this.closest('.dropdown-filter');
+      menu.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
+    }));
+
+    // select/unselect all inside this modal fragment
+    document.getElementById('delSelectAll')?.addEventListener('click', function(){
+      document.querySelectorAll('input[name="delete_ids"]').forEach(cb => cb.checked = true);
+    });
+    document.getElementById('delUnselectAll')?.addEventListener('click', function(){
+      document.querySelectorAll('input[name="delete_ids"]').forEach(cb => cb.checked = false);
+    });
+
+    // delRefresh: re-fetch same fragment with current query params
+    document.getElementById('delRefresh')?.addEventListener('click', function(){
+      const params = new URLSearchParams(window.location.search);
+      const url = '/dashboard/load/bmmu_delete/?' + params.toString();
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.text()).then(html => {
+          const container = document.getElementById('deleteBeneficiariesContainer');
+          if (container) {
+            container.innerHTML = html;
+            if (typeof window.fragmentInit === 'function') window.fragmentInit();
+          }
+        }).catch(e=>console.error(e));
+    });
+
+    // pagination: anchors have class page-link-ajax & data-page — capture clicks and fetch delete fragment page via AJAX
+    document.querySelectorAll('.page-link-ajax').forEach(a => {
+      a.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const page = this.dataset.page;
+        if (!page) return;
+        const params = new URLSearchParams(window.location.search);
+        params.set('page', page);
+
+        // preserve any filters/search/sort present in the toolbar
+        const q = document.getElementById('globalSearch')?.value?.trim();
+        if (q) params.set('search', q);
+        const sortBy = document.getElementById('toolbarSortBy')?.value;
+        const order = document.getElementById('toolbarOrder')?.value;
+        if (sortBy) params.set('sort_by', sortBy);
+        if (order) params.set('order', order);
+
+        const url = '/dashboard/load/bmmu_delete/?' + params.toString();
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(r => r.text()).then(html => {
+            const container = document.getElementById('deleteBeneficiariesContainer');
+            if (container) {
+              container.innerHTML = html;
+              if (typeof window.fragmentInit === 'function') window.fragmentInit();
+            }
+          }).catch(e => console.error(e));
+      });
+    });
+
+    // safety: when fragment loaded we want cleanup on close buttons as well (some dynamic fragments can leave backdrops)
+    document.querySelectorAll('.btn-close').forEach(btn => {
+      btn.addEventListener('click', function(){
+        setTimeout(function(){ if (typeof cleanupModalArtifacts === 'function') cleanupModalArtifacts(); }, 120);
+      });
+    });
+
+  }()); // end IIFE
+</script>

@@ -1,0 +1,45 @@
+{# smmu/request_detail.html — fragment only #}
+<h4>Request: {{ batch.code|default:batch.id }}</h4>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <p><strong>Training:</strong> {{ batch.training_plan.training_name }}</p>
+    <p><strong>Theme:</strong> {{ batch.training_plan.theme }}</p>
+    <p><strong>Partner:</strong> {% if batch.partner %}{{ batch.partner.name }}{% else %}Not assigned{% endif %}</p>
+
+    <hr>
+    <h6>Centre & Dates</h6>
+    <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
+    <p><strong>Partner Proposed Centre:</strong> {{ batch.centre_proposed|default:"(not proposed)" }}</p>
+    <p><strong>Start:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} <strong>End:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
+
+    <hr>
+    <h6>Assigned Trainers</h6>
+    <ul>
+      {% for t in batch.trainers.all %}
+        <li>{{ t.full_name }} {% if t.certificate_number %} — {{ t.certificate_number }}{% endif %} {% if t.skills %} <small>({{ t.skills }})</small>{% endif %}</li>
+      {% empty %}
+        <li><em>No trainers assigned yet.</em></li>
+      {% endfor %}
+    </ul>
+
+    <hr>
+    <h6>Participants</h6>
+    <ul>
+      {% for p in batch.beneficiaries.all %}
+        <li>{{ p.member_name }}{% if p.shg_name %} — {{ p.shg_name }}{% endif %} {% if p.village %}({{ p.village }}){% endif %}</li>
+      {% empty %}
+        <li><em>No participants assigned.</em></li>
+      {% endfor %}
+    </ul>
+
+    <hr>
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" name="action" value="approve" class="btn btn-success">Approve</button>
+      <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+      <a href="{% url 'smmu_training_requests' %}" class="btn btn-secondary">Back</a>
+    </form>
+
+  </div>
+</div>

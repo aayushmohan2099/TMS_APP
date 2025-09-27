@@ -1,0 +1,154 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Master Trainer Portal{% endblock %}</title>
+
+  <!-- Bootstrap CSS (use your project's bootstrap or this CDN) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    /* Minimal styling to match your mockup */
+    body { background:#fff; min-height:100vh; }
+    .tp-header { background: #fff7e6; border-bottom:4px solid #f0a040; padding:10px 18px; }
+    .tp-header h1 { font-size:18px; margin:0; font-weight:600; color:#333; }
+    .tp-topright { display:flex; align-items:center; gap:12px; }
+    .tp-pfp { width:44px; height:44px; border-radius:999px; object-fit:cover; border:2px solid #f0a040; cursor:pointer; }
+    .tp-sidebar { border-right:4px solid #f0a040; background:#fff; min-height:calc(100vh - 64px); padding-top:18px; }
+    .tp-sidebar .nav-link { color:#222; padding:12px 20px; font-weight:600; }
+    .tp-sidebar .nav-link.active { background:#fff2e6; color:#d35400; }
+    .tp-content { padding:24px; }
+
+    /* small dropdown under pfp */
+    .tp-pfp-dropdown { position:relative; }
+    .tp-pfp-menu {
+      display:none;
+      position:absolute;
+      right:0;
+      top:52px;
+      background:#fff;
+      border:1px solid #eee;
+      box-shadow:0 6px 20px rgba(0,0,0,0.08);
+      z-index:50;
+      min-width:160px;
+      border-radius:6px;
+      overflow:hidden;
+    }
+    .tp-pfp-menu a { display:block; padding:10px 14px; color:#333; text-decoration:none; }
+    .tp-pfp-menu a:hover { background:#f6f6f6; color:#000; }
+
+    /* make content area scroll if large */
+    .tp-main { height:calc(100vh - 64px); overflow:auto; }
+
+    footer.tp-footer { position:fixed; left:0; right:0; bottom:0; background:#222; color:#fff; padding:10px 0; text-align:center; }
+  </style>
+
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <!-- Header -->
+  <header class="tp-header d-flex justify-content-between align-items-center">
+    <div class="d-flex align-items-center gap-3">
+      <div style="padding-right:18px;">
+        <strong style="font-size:18px;">Master Trainer Management</strong>
+      </div>
+      <div class="ms-2">
+        <h1 style="font-size:20px; margin:0;">{% block header_title %}Welcome{% endblock %}</h1>
+        <div class="small text-muted">{% block header_subtitle %}Select an application from the left to begin.{% endblock %}</div>
+      </div>
+    </div>
+
+    <div class="tp-topright">
+      <div class="text-end me-2">
+        <!-- show real trainer name -->
+        <div style="font-weight:600; font-size:14px;">
+          {% if master_trainer and master_trainer.full_name %}{{ master_trainer.full_name }}
+          {% elif user.get_full_name %}{{ user.get_full_name }}
+          {% else %}{{ user.username }}{% endif %}
+        </div>
+        <div class="small text-muted">({{ user.username }})</div>
+      </div>
+
+      <div class="tp-pfp-dropdown">
+        {% if master_trainer and master_trainer.profile_picture %}
+          <img src="{{ master_trainer.profile_picture.url }}" alt="pfp" class="tp-pfp" id="tpPfp">
+        {% else %}
+          <img src="{% static 'images/default-avatar.png' %}" alt="pfp" class="tp-pfp" id="tpPfp">
+        {% endif %}
+
+        <div class="tp-pfp-menu" id="tpPfpMenu" aria-hidden="true">
+          <a href="{% url 'master_trainer_profile' %}">Profile</a>
+          <a href="{% url 'custom_logout' %}">Logout</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="d-flex">
+    <!-- Sidebar -->
+    <nav class="tp-sidebar col-2 p-0">
+      <ul class="nav flex-column">
+        <li class="nav-item">
+          <a class="nav-link active" href="{% url 'master_trainer_dashboard' %}" data-menu="dashboard">Dashboard</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-menu="attendance">Attendance Management</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-menu="media">Recommended ToTs</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#educationSubmenu" data-bs-toggle="collapse" aria-expanded="false">My Education</a>
+          <div class="collapse ms-2" id="educationSubmenu">
+            <ul class="nav flex-column">
+              <li class="nav-item"><a class="nav-link" href="{% url 'master_trainer_education' %}?tab=achievements">Achievements</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'master_trainer_education' %}?tab=certificates">Certificates</a></li>
+            </ul>
+          </div>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-menu="reports">Success Story Management</a>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- Main content -->
+    <main class="tp-main col p-3">
+      <div class="tp-content">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  <footer class="tp-footer">© {{ now.year }}Master Trainer Portal. All Rights Reserved.</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // small pfp dropdown toggle
+    const pfp = document.getElementById('tpPfp');
+    const pfpMenu = document.getElementById('tpPfpMenu');
+    if (pfp) {
+      pfp.addEventListener('click', function(e){
+        e.stopPropagation();
+        if (pfpMenu.style.display === 'block') { pfpMenu.style.display = 'none'; pfpMenu.setAttribute('aria-hidden','true');}
+        else { pfpMenu.style.display = 'block'; pfpMenu.setAttribute('aria-hidden','false');}
+      });
+      // hide on outside click
+      document.addEventListener('click', function(){ pfpMenu.style.display = 'none'; pfpMenu.setAttribute('aria-hidden','true'); });
+    }
+
+    // sidebar active toggle (small)
+    document.querySelectorAll('.tp-sidebar .nav-link').forEach(a=>{
+      a.addEventListener('click', function(ev){
+        document.querySelectorAll('.tp-sidebar .nav-link').forEach(x=>x.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+  </script>
+
+  {% block body_extra %}{% endblock %}
+</body>
+</html>

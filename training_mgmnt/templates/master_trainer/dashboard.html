@@ -1,0 +1,216 @@
+{% extends "master_trainer/base_trainer.html" %}
+{% load static %}
+
+{% block title %}Master Trainer Dashboard{% endblock %}
+{% block header_title %}Welcome, {% if master_trainer and master_trainer.full_name %}{{ master_trainer.full_name }}{% else %}{{ user.get_full_name|default:user.username }}{% endif %}{% endblock %}
+{% block header_subtitle %}Your trainer dashboard — upcoming batches, attendance and quick actions.{% endblock %}
+
+{% block content %}
+  <div class="row g-3">
+    <div class="col-12">
+      <!-- KPI row -->
+      <div class="d-flex gap-3 mb-3 flex-wrap">
+        <div class="card shadow-sm" style="min-width:180px; flex:1;">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-muted small">Total Trainings Assigned</div>
+                <div class="h4 mb-0" id="kpi-total-trainings">{{ kpi_total_trainings }}</div>
+              </div>
+              <div class="text-end">
+                <div class="small text-success">—</div>
+                <div style="font-size:26px;">📋</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm" style="min-width:180px; flex:1;">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-muted small">Upcoming Trainings (7 days)</div>
+                <div class="h4 mb-0" id="kpi-upcoming">{{ kpi_upcoming }}</div>
+              </div>
+              <div class="text-end">
+                <div class="small text-warning">—</div>
+                <div style="font-size:26px;">📅</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm" style="min-width:180px; flex:1;">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-muted small">Success Rate</div>
+                <div class="h4 mb-0" id="kpi-attendance">{{ kpi_attendance_pct }}%</div>
+              </div>
+              <div class="text-end">
+                <div class="small text-success">—</div>
+                <div style="font-size:26px;">👥</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm" style="min-width:180px; flex:1;">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-muted small">Invoices Pending</div>
+                <div class="h4 mb-0" id="kpi-invoices">{{ kpi_invoices }}</div>
+              </div>
+              <div class="text-end">
+                <div class="small text-danger">—</div>
+                <div style="font-size:26px;">💳</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Left column: charts -->
+    <div class="col-8">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="mb-3">Your Trainings & Attendance (sample)</h5>
+          <canvas id="mtChartLine" style="height:300px;"></canvas>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h6 class="mb-3">Recent Trainings (by theme)</h6>
+              <canvas id="mtChartBar" style="height:220px;"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card mb-3">
+            <div class="card-body text-center">
+              <h6 class="mb-2">Attendance Breakdown</h6>
+              <canvas id="mtChartDoughnut" style="height:220px; max-width:220px; margin:auto;"></canvas>
+              <div class="mt-2 small text-muted">Present / Absent / Excused</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column: Assigned requests -->
+    <div class="col-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5>Your assigned batches</h5>
+          <p class="text-muted small">Recent batches where you are listed as trainer</p>
+          <ul class="list-group">
+            {% for batch in assigned_batches|slice:":6" %}
+              <li class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-bold">{{ batch.training_plan.training_name }}</div>
+                  <div class="small text-muted">Batch: {{ batch.code|default:batch.id }} | Theme: {{ batch.training_plan.theme }}</div>
+                </div>
+                <div><a href="{% url 'partner_view_batch' batch.id %}" class="btn btn-sm btn-primary">Open</a></div>
+              </li>
+            {% empty %}
+              <li class="list-group-item text-center text-muted">No assigned batches</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6>Quick Actions</h6>
+          <div class="d-grid gap-2">
+            <a class="btn btn-sm btn-primary w-100" href="#ongoingTrainingsModal" id="openOngoingBtn">Ongoing Trainings</a>
+            <a class="btn btn-sm btn-outline-secondary w-100" href="{% url 'master_trainer_profile' %}">Edit Profile</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ongoing Trainings Modal -->
+    <div class="modal fade" id="ongoingTrainingsModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Ongoing Trainings</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            {% if ongoing and ongoing.exists %}
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>Batch</th><th>Training</th><th>Theme</th><th>Centre</th><th>Partner</th><th>Start</th><th>End</th><th>Trainers</th><th>Participants</th><th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for b in ongoing %}
+                      <tr>
+                        <td>{{ b.code|default:b.id }}</td>
+                        <td>{{ b.training_plan.training_name }}</td>
+                        <td>{{ b.training_plan.theme }}</td>
+                        <td>{{ b.centre|default:"(not set)" }}</td>
+                        <td>{% if b.partner %}{{ b.partner.name }}{% else %}&mdash;{% endif %}</td>
+                        <td>{{ b.start_date|date:"Y-m-d"|default:"—" }}</td>
+                        <td>{{ b.end_date|date:"Y-m-d"|default:"—" }}</td>
+                        <td>{{ b.trainers.count }}</td>
+                        <td>{{ b.beneficiaries.count }}</td>
+                        <td><a class="btn btn-sm btn-outline-primary" href="{% url 'partner_view_batch' b.id %}">Open</a></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <div class="text-center text-muted py-4">No ongoing trainings at the moment.</div>
+            {% endif %}
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // Placeholder sample charts (you can replace the data by passing arrays in context)
+    const months = ['May','Jun','Jul','Aug','Sep','Oct'];
+    const trainingsPerMonth = [2,4,3,6,5,4];
+    const attendancePct = [78,82,80,85,83,81];
+
+    // Line chart
+    const ctxLine = document.getElementById('mtChartLine').getContext('2d');
+    new Chart(ctxLine, {
+      data: {
+        labels: months,
+        datasets: [
+          { type: 'bar', label:'Trainings Started', data: trainingsPerMonth, borderRadius:6, maxBarThickness:36 },
+          { type: 'line', label:'Avg Attendance %', data: attendancePct, tension:0.35, pointRadius:4 }
+        ]
+      },
+      options: { responsive:true, interaction:{mode:'index',intersect:false} }
+    });
+
+    // Bar chart
+    const ctxBar = document.getElementById('mtChartBar').getContext('2d');
+    new Chart(ctxBar, { type:'bar', data:{ labels:['Agri','IT','Hosp'], datasets:[{ label:'Trainings', data:[6,4,3], borderRadius:6 }] }, options:{ indexAxis:'y', responsive:true } });
+
+    // Doughnut
+    const ctxDonut = document.getElementById('mtChartDoughnut').getContext('2d');
+    new Chart(ctxDonut, { type:'doughnut', data:{ labels:['Present','Absent','Excused'], datasets:[{ data:[820,140,40] }] }, options:{ responsive:true } });
+  </script>
+{% endblock %}

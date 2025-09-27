@@ -1,0 +1,12 @@
+{% extends "apps/tms.html" %}
+{% block content %}
+<div class="container">
+  <h3>Propose Training Plan</h3>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn btn-primary">Propose Plan</button>
+    <a class="btn btn-secondary" href="{% url 'training_program_management' %}">Cancel</a>
+  </form>
+</div>
+{% endblock %}

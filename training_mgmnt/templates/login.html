@@ -1,0 +1,321 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - Training Management Portal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <style>
+      /* (preserve your existing styles) */
+      body { margin:0; padding:0; height:100vh; background:#000; display:flex; justify-content:center; align-items:center; overflow:hidden; }
+      body::before { content:""; position:fixed; top:0; left:0; width:100%; height:100%; background-size:cover; background-position:center; filter:blur(6px) brightness(0.7); z-index:-2; animation: slideshow 18s infinite; }
+      @keyframes slideshow { 0%,33% { background-image: url("{% static 'images/bg_login1.jpg' %}"); } 34%,66% { background-image: url("{% static 'images/bg_login2.jpg' %}"); } 67%,100% { background-image: url("{% static 'images/bg_login3.jpg' %}"); } }
+      .login-box { background: rgba(255,255,255,0.95); border-radius:12px; padding:40px 30px 30px; width:380px; box-shadow:0 6px 18px rgba(0,0,0,0.2); position:relative; }
+      .header-img { position:absolute; top:-120px; left:50%; transform:translateX(-50%); width:300px; height:auto; }
+      .login-step { margin-top:60px; }
+      .btn-custom { background-color:#ff6600; color:#fff; font-weight:600; transition:0.3s; border-radius:6px; }
+      .btn-custom:hover { background-color:#e65c00; transform:scale(1.05); }
+      .forgot-link { font-size:0.9rem; display:block; text-align:right; }
+      .captcha-box { font-weight:bold; font-size:1.2rem; letter-spacing:2px; background:#f1f1f1; padding:8px; border:1px solid #ddd; border-radius:4px; margin-bottom:5px; user-select:none; }
+      .home-btn { position:fixed; bottom:20px; right:20px; background-color:#ff6600; color:#fff; padding:12px 18px; border-radius:50px; font-weight:bold; text-decoration:none; transition:0.3s; box-shadow:0 4px 10px rgba(0,0,0,0.2); }
+      .home-btn:hover { background-color:#e65c00; transform:scale(1.1); }
+      .signup-link { margin-top:12px; display:block; text-align:center; font-size:0.95rem; }
+
+      /* Signup overlay/card (small & centered, like picture) */
+      .signup-overlay {
+        position: fixed;
+        inset: 0;
+        display: none; /* shown via JS */
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        background: rgba(0,0,0,0.45);
+      }
+      .signup-card {
+        width: 360px;
+        background: #fff;
+        padding: 18px 18px 14px;
+        border-radius: 10px;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+        text-align: left;
+        position: relative;
+      }
+      .signup-card h5 { text-align:center; margin-bottom:12px; }
+      .signup-close {
+        position: absolute;
+        top: 8px; right: 8px;
+        background: transparent;
+        border: none;
+        font-size: 18px;
+        color: #444;
+      }
+      .signup-errors { color: #b00020; font-size: 0.9rem; margin-bottom:8px; display:none; }
+      .signup-small-note { font-size:0.85rem; color:#666; margin-top:8px; text-align:center; }
+    </style>
+</head>
+<body>
+
+    <div class="login-box text-center">
+        <img src="{% static 'images/login_header.png' %}" class="header-img" alt="Logo">
+
+        <div class="login-step" id="step1">
+            <h5 class="mb-3">Select Login Type</h5>
+            <select class="form-select mb-3" id="loginType">
+                <option value="" selected disabled>-- Choose --</option>
+                <option value="bmmu">BMMU</option>
+                <option value="dmmu">DMMU</option>
+                <option value="smmu">SMMU</option>
+                <option value="training_partner">Training Partner</option>
+                <option value="master_trainer">Master Trainer</option>
+                <option value="admin">Admin</option>
+            </select>
+            <button class="btn btn-custom w-100" onclick="showLoginForm()">Continue</button>
+        </div>
+
+        <div class="login-step d-none" id="step2">
+            <h5 class="mb-3">Login</h5>
+            <form method="post" action="{% url 'custom_login' %}" onsubmit="return validateCaptcha()">
+                {% csrf_token %}
+                <input type="hidden" name="login_type" id="selectedLoginType">
+                <input type="text" name="username" class="form-control mb-3" placeholder="Username" required>
+                <input type="password" name="password" class="form-control mb-3" placeholder="Password" required>
+
+                <div class="mb-3">
+                    <div id="captchaText" class="captcha-box"></div>
+                    <input type="text" id="captchaInput" class="form-control" placeholder="Enter Captcha" required>
+                </div>
+
+                <button type="submit" class="btn btn-custom w-100">Login</button>
+                <a href="#" class="forgot-link mt-2">Forgot Password?</a>
+
+                <!-- Signup link placeholder: visible only for partner / master trainer -->
+                <div id="signupContainer" class="signup-link d-none">
+                    New user? <a href="#" id="signupOpen">Sign up</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <a href="{% url 'home' %}" class="home-btn">Home</a>
+
+    <!-- Inline signup overlay (keeps user on same page) -->
+    <div id="signupOverlay" class="signup-overlay" aria-hidden="true">
+      <div class="signup-card" role="dialog" aria-modal="true" aria-labelledby="signupTitle">
+        <button class="signup-close" id="signupClose" title="Close">&times;</button>
+        <h5 id="signupTitle">Sign Up</h5>
+
+        <div class="signup-errors" id="signupErrors"></div>
+
+        <form id="signupForm" onsubmit="return false;">
+          {% csrf_token %}
+          <input type="hidden" id="signupRole" name="role" value="">
+          <div class="mb-2">
+            <label class="form-label small">New username</label>
+            <input type="text" id="signupUsername" name="username" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Email (optional)</label>
+            <input type="email" id="signupEmail" name="email" class="form-control" placeholder="you@example.com">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">New password</label>
+            <input type="password" id="signupPassword1" name="password1" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Confirm password</label>
+            <input type="password" id="signupPassword2" name="password2" class="form-control" required>
+          </div>
+
+          <div class="d-grid gap-2 mt-2">
+            <button id="signupSubmit" class="btn btn-custom">Create account</button>
+            <button id="signupCancel" class="btn btn-outline-secondary" type="button">Cancel</button>
+          </div>
+
+          <div class="signup-small-note">Only username & password are collected here. Complete profile after login.</div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+        let generatedCaptcha = "";
+
+        function generateCaptcha() {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            let captcha = "";
+            for (let i = 0; i < 6; i++) {
+                captcha += chars.charAt(Math.floor(Math.random() * Math.random() * chars.length));
+            }
+            generatedCaptcha = captcha;
+            document.getElementById("captchaText").innerText = captcha;
+        }
+
+        function validateCaptcha() {
+            const input = document.getElementById("captchaInput").value.trim();
+            if (input !== generatedCaptcha) {
+                alert("Captcha does not match. Please try again.");
+                generateCaptcha();
+                return false;
+            }
+            return true;
+        }
+
+        function showLoginForm() {
+            let loginType = document.getElementById("loginType").value;
+            if (!loginType) {
+                alert("Please select a login type");
+                return;
+            }
+            document.getElementById("selectedLoginType").value = loginType;
+            document.getElementById("step1").classList.add("d-none");
+            document.getElementById("step2").classList.remove("d-none");
+            generateCaptcha();
+
+            // show signup link only for training_partner or master_trainer
+            const signupContainer = document.getElementById('signupContainer');
+            const signupOpen = document.getElementById('signupOpen');
+            if (loginType === 'training_partner' || loginType === 'master_trainer') {
+                signupContainer.classList.remove('d-none');
+
+                // open overlay instead of navigating away
+                signupOpen.addEventListener('click', function (ev) {
+                    ev.preventDefault();
+                    openSignupOverlay(loginType);
+                }, { once: true });
+
+            } else {
+                signupContainer.classList.add('d-none');
+            }
+        }
+
+        // signup overlay helpers
+        function openSignupOverlay(role) {
+          const overlay = document.getElementById('signupOverlay');
+          document.getElementById('signupRole').value = role;
+          document.getElementById('signupErrors').style.display = 'none';
+          document.getElementById('signupErrors').innerHTML = '';
+          // clear fields (optional)
+          document.getElementById('signupUsername').value = '';
+          document.getElementById('signupEmail').value = '';
+          document.getElementById('signupPassword1').value = '';
+          document.getElementById('signupPassword2').value = '';
+          overlay.style.display = 'flex';
+          overlay.setAttribute('aria-hidden', 'false');
+          // focus username
+          setTimeout(()=> document.getElementById('signupUsername').focus(), 50);
+        }
+        function closeSignupOverlay() {
+          const overlay = document.getElementById('signupOverlay');
+          overlay.style.display = 'none';
+          overlay.setAttribute('aria-hidden', 'true');
+        }
+
+        document.getElementById('signupClose').addEventListener('click', function(){ closeSignupOverlay(); });
+        document.getElementById('signupCancel').addEventListener('click', function(){ closeSignupOverlay(); });
+
+        // CSRF retrieval: use cookie or hidden input
+        function getCsrfToken() {
+          // prefer cookie
+          const name = 'csrftoken';
+          const cookies = document.cookie.split(';').map(c=>c.trim());
+          for (const c of cookies) {
+            if (c.startsWith(name + '=')) return decodeURIComponent(c.split('=')[1]);
+          }
+          // fallback to hidden input rendered by {% csrf_token %}
+          const el = document.querySelector('input[name="csrfmiddlewaretoken"]');
+          return el ? el.value : '';
+        }
+
+        async function submitSignupAjax() {
+          const username = document.getElementById('signupUsername').value.trim();
+          const email = document.getElementById('signupEmail').value.trim();
+          const password1 = document.getElementById('signupPassword1').value;
+          const password2 = document.getElementById('signupPassword2').value;
+          const role = document.getElementById('signupRole').value;
+
+          const errorsEl = document.getElementById('signupErrors');
+          errorsEl.style.display = 'none';
+          errorsEl.innerHTML = '';
+
+          // basic client-side checks
+          if (!username || !password1 || !password2) {
+            errorsEl.innerHTML = 'Please fill username and password fields.';
+            errorsEl.style.display = 'block';
+            return;
+          }
+          if (password1 !== password2) {
+            errorsEl.innerHTML = 'Passwords do not match.';
+            errorsEl.style.display = 'block';
+            return;
+          }
+
+          const body = new URLSearchParams();
+          body.append('role', role);
+          body.append('username', username);
+          body.append('email', email);
+          body.append('password1', password1);
+          body.append('password2', password2);
+
+          try {
+            const resp = await fetch("{% url 'signup' %}", {
+              method: 'POST',
+              headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCsrfToken(),
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+              },
+              body: body.toString()
+            });
+
+            const data = await resp.json().catch(()=>({ ok:false, errors: {'__all__':['Invalid server response']}}));
+
+            if (resp.ok && data.ok) {
+              // success: server created account and probably logged them in; redirect to server-provided URL
+              window.location.href = data.redirect || '/';
+              return;
+            }
+
+            // show errors
+            let html = '';
+            if (data && data.errors) {
+              for (const [k, v] of Object.entries(data.errors)) {
+                html += '<div><strong>' + k + '</strong>: ' + (Array.isArray(v) ? v.join(', ') : v) + '</div>';
+              }
+            } else if (data && data.message) {
+              html = '<div>' + data.message + '</div>';
+            } else {
+              html = '<div>Signup failed. Please try again.</div>';
+            }
+            errorsEl.innerHTML = html;
+            errorsEl.style.display = 'block';
+          } catch (err) {
+            errorsEl.innerHTML = 'Server error. Try again later.';
+            errorsEl.style.display = 'block';
+            console.error('signup error', err);
+          }
+        }
+
+        document.getElementById('signupSubmit').addEventListener('click', function(e){
+          e.preventDefault();
+          submitSignupAjax();
+        });
+
+        // close overlay when clicking outside card
+        document.getElementById('signupOverlay').addEventListener('click', function(e){
+          if (e.target === this) closeSignupOverlay();
+        });
+
+        // Initialize captcha if user refreshes on step2
+        window.onload = function() {
+          // if a role is present in querystring (e.g. returning from a link), pre-fill selection
+          const params = new URLSearchParams(window.location.search);
+          const role = params.get('role');
+          if (role) {
+            const sel = document.getElementById('loginType');
+            if (sel) { sel.value = role; showLoginForm(); }
+          }
+          generateCaptcha();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<h4>App3</h4>
+
+{% if role == "bmmu" %}
+    <p>Welcome BMMU user. Here you can manage training schedules, upload beneficiary data, and monitor block-level reports.</p>
+
+{% elif role == "dmmu" %}
+    <p>Welcome DMMU user. Here you can track block submissions, approve training plans, and view consolidated district reports.</p>
+
+{% elif role == "smmu" %}
+    <p>Welcome SMMU user. Here you can oversee state-wide progress, generate policy reports, and manage statewide settings.</p>
+
+{% else %}
+    <p>Role not recognized.</p>
+{% endif %}

@@ -1,0 +1,232 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ user.role|upper }} Dashboard - Training Management Portal</title>
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+
+    <style>
+        body {
+            background: url("{% static 'images/bg_blur.jpg' %}") no-repeat center center fixed;
+            background-size: cover;
+            backdrop-filter: blur(6px);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .navbar { background-color: #fff3cd !important; padding: 6px 15px; }
+        .navbar-brand { font-weight: bold; color: #000 !important; cursor: pointer; }
+        .nav-link { color: #000 !important; padding: 6px 12px; border-radius: 6px; margin: 0 4px; transition: 0.3s; }
+        .nav-link:hover { background-color: #ff6600; color: #fff !important; }
+
+        /* Dashboard Layout */
+        .dashboard { flex: 1; display: flex; height: calc(100vh - 60px); overflow: hidden; }
+        .sidebar { width: 220px; background: rgba(255, 255, 255, 0.95); border-right: 2px solid #ddd; padding: 15px; }
+        .sidebar h5 { margin-bottom: 20px; font-weight: bold; color: #333; }
+        .sidebar a { display: block; padding: 10px; margin-bottom: 8px; background: #f8f9fa; border-radius: 6px; text-decoration: none; color: #000; transition: 0.3s; }
+        .sidebar a:hover { background: #ff6600; color: #fff; }
+        .content { flex: 1; padding: 20px; background: rgba(255, 255, 255, 0.95); overflow-y: auto; position: relative; }
+        footer { background: #222; color: #fff; text-align: center; padding: 8px; }
+
+        /* fix for sticky header overlap (if fragments use sticky table headers) */
+        .content .table thead th { z-index: 6; position: sticky; top: 0; }
+
+        /* small helper to avoid hidden-backdrop stuck */
+        .modal-backdrop.show { opacity: 0.45; }
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <!-- Dashboard link -->
+            <span class="navbar-brand" onclick="window.location.href='{% url 'dashboard' %}'">{{ user.role|upper }} Dashboard</span>
+            <div class="ms-auto d-flex align-items-center">
+                <span class="me-3 fw-bold">👤 {{ user.first_name }} {{ user.last_name }} ({{ user.role|upper }})</span>
+                <a href="{% url 'custom_logout' %}" class="nav-link d-inline">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h5>Applications</h5>
+            <a href="#" onclick="loadContent('tms')">Training Program Management</a>
+            <a href="#" onclick="loadContent('app2')">APP 2</a>
+            <a href="#" onclick="loadContent('app3')">APP 3</a>
+            <!-- BMMU is handled by header default content -->
+        </div>
+
+        <!-- Content Area -->
+        <div class="content" id="content-area">
+            {% if default_content %}
+                {{ default_content|safe }}
+            {% else %}
+                <h4>Welcome, {{ user.first_name }} {{ user.last_name }}</h4>
+                <p>Select an application from the left to begin.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2025 Training Management Portal. All Rights Reserved.</p>
+    </footer>
+
+    <!-- Bootstrap JS bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+    /**
+    * Remove stray bootstrap modal backdrops and modal-open class.
+    * Call this whenever you suspect leftover modal artifacts are blocking interaction.
+    */
+    function cleanupModalArtifacts() {
+      // remove any leftover backdrops
+      document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+      // ensure body doesn't keep modal-open (restores scrolling)
+      document.body.classList.remove('modal-open');
+      // ensure no modal remains marked as shown
+      document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show'));
+    }
+
+    /**
+    * Execute inline <script> tags found inside a container.
+    * External scripts (with src) will be appended to body (and fetched).
+    * Inline scripts will be appended as text nodes and executed.
+    */
+    function executeInlineScripts(container) {
+      try {
+        const scripts = Array.from(container.querySelectorAll('script'));
+        scripts.forEach(oldScript => {
+          const newScript = document.createElement('script');
+          if (oldScript.type) newScript.type = oldScript.type;
+          if (oldScript.src) {
+            // external script -> let browser fetch it
+            newScript.src = oldScript.src;
+            newScript.async = false;
+            document.body.appendChild(newScript);
+          } else {
+            // inline script -> copy content
+            newScript.textContent = oldScript.textContent;
+            document.body.appendChild(newScript);
+          }
+        });
+      } catch (e) {
+        console.warn('executeInlineScripts failed', e);
+      }
+    }
+
+    /**
+    * Replace #content-area with provided HTML fragment, execute embedded scripts and call cleanup.
+    * This is used after successfully fetching an AJAX fragment.
+    */
+    function replaceContentWithHtml(html) {
+      const content = document.getElementById('content-area');
+      if (!content) return;
+
+      // use a temp container to safely extract scripts
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+
+      // place fragment HTML
+      content.innerHTML = tmp.innerHTML;
+
+      // execute scripts found inside fragment
+      try { executeInlineScripts(content); } catch (e) { console.warn(e); }
+
+      // cleanup any modal artifacts (safety)
+      cleanupModalArtifacts();
+
+      // call fragmentInit if the fragment provided it
+      if (typeof window.fragmentInit === 'function') {
+        try { window.fragmentInit(); } catch (e) { console.warn('fragmentInit error', e); }
+      }
+    }
+
+    /**
+    * Fetch fragment via AJAX (first try given path, then fallback to '/bmmu' prefixed path).
+    * Both attempts send X-Requested-With so server returns fragment-only HTML.
+    * Returns Promise<string> resolved with HTML.
+    */
+    async function fetchFragment(path) {
+      const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+      try {
+        const r = await fetch(path, { headers });
+        if (!r.ok) throw new Error('fetch failed');
+        return await r.text();
+      } catch (err) {
+        // fallback to prefixed path (in case app is mounted under /bmmu/)
+        try {
+          const r2 = await fetch('/bmmu' + path, { headers });
+          if (!r2.ok) throw new Error('fallback failed');
+          return await r2.text();
+        } catch (err2) {
+          throw err2;
+        }
+      }
+    }
+
+    /**
+    * Public helper to load an app fragment into #content-area:
+    * path used: /dashboard/load/<app>/
+    */
+    function loadContent(appName) {
+      const path = `/dashboard/load/${encodeURIComponent(appName)}/`;
+      const content = document.getElementById('content-area');
+      if (!content) return;
+
+      // show loading state
+      content.innerHTML = '<div class="p-4 text-center">Loading...</div>';
+
+      fetchFragment(path)
+        .then(html => replaceContentWithHtml(html))
+        .catch(err => {
+          console.error('loadContent failed', err);
+          content.innerHTML = '<div class="p-4 text-danger">Error loading content. Try refreshing the page.</div>';
+        });
+    }
+
+    /**
+    * When the page initially loads, ensure fragmentInit (if server-injected) is executed,
+    * and ensure any stray modal backdrops are cleaned up.
+    */
+    document.addEventListener('DOMContentLoaded', function() {
+      // remove leftover backdrops/modal-open if any
+      cleanupModalArtifacts();
+
+      // if server rendered default_content included inline fragment code, call its init
+      if (typeof window.fragmentInit === 'function') {
+        try { window.fragmentInit(); } catch (e) { console.warn('fragmentInit raised', e); }
+      }
+    });
+
+    /**
+    * Global safety hooks:
+    * - cleanup when bootstrap triggers hidden.bs.modal
+    * - extra safety when user clicks the 'x' (btn-close) - run cleanup shortly after
+    */
+    document.addEventListener('hidden.bs.modal', cleanupModalArtifacts);
+
+    // Some dynamic fragments can leave the backdrop if close is triggered via custom markup.
+    // Add a small safety call when X is clicked.
+    document.addEventListener('click', function(e){
+      if (e.target && e.target.classList && e.target.classList.contains('btn-close')) {
+        setTimeout(cleanupModalArtifacts, 120);
+      }
+    });
+
+    // Expose helpers for debugging in console
+    window.loadContent = loadContent;
+    window.cleanupModalArtifacts = cleanupModalArtifacts;
+    </script>
+</body>
+</html>

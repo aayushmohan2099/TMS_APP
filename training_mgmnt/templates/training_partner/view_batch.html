@@ -1,0 +1,210 @@
+{% extends "training_partner/base_partner.html" %}
+{% block title %}Batch {{ batch.code|default:batch.id }}{% endblock %}
+{% block header_title %}Batch: {{ batch.code|default:batch.id }}{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="card-body">
+      <h5>Training: {{ batch.training_plan.training_name }}</h5>
+      <p><strong>Theme:</strong> {{ batch.training_plan.theme }}</p>
+      <p><strong>Partner:</strong> {% if batch.partner %}{{ batch.partner.name }}{% else %}Not assigned{% endif %}</p>
+
+      <hr>
+
+      <!-- Confirmed / Proposed centre & dates -->
+      <div class="mb-3">
+        <h6>Centre & Dates</h6>
+        <p><strong>No. of Days (Training Runtime):</strong> {{ batch.training_plan.no_of_days }}</p>
+        <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
+        <p><strong>Proposed Centre (by partner):</strong> {{ batch.centre_proposed|default:"(not proposed)" }}</p>
+        <p><strong>Start date:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} &nbsp;
+           <strong>End date:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
+      </div>
+
+      <hr>
+
+      <!-- Assigned trainers -->
+      <div class="mb-3">
+        <h6>Selected Trainers</h6>
+        <ul>
+          {% for t in batch.trainers.all %}
+            <li>
+              <strong>{{ t.full_name }}</strong>
+              {% if t.certificate_number %} — {{ t.certificate_number }}{% endif %}
+              {% if t.skills %} <span class="text-muted">({{ t.skills }})</span>{% endif %}
+            </li>
+          {% empty %}
+            <li><em>No trainers assigned yet.</em></li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <!-- Participants -->
+      <div class="mb-3">
+        <h6>Participants</h6>
+        <ul>
+          {% for b in batch.beneficiaries.all %}
+            <li>{{ b.member_name }}{% if b.shg_name %} — {{ b.shg_name }}{% endif %} {% if b.village %} ({{ b.village }}){% endif %}</li>
+          {% empty %}
+            <li><em>No participants assigned yet.</em></li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <hr>
+
+      <!-- Partner proposal form (AJAX) -->
+      <h6>Propose centre & dates (Partner)</h6>
+      <div id="partner-propose-area" class="mb-3">
+        <div class="mb-2">
+          <label class="form-label">Proposed Centre</label>
+          <input id="centreInput" class="form-control" value="{{ batch.centre_proposed|default:'' }}" placeholder="Enter centre/location">
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-3">
+            <label class="form-label">Start date</label>
+            <input type="date" id="startDateInput" class="form-control" value="{{ batch.start_date|date:'Y-m-d' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">End date</label>
+            <input type="date" id="endDateInput" class="form-control" value="{{ batch.end_date|date:'Y-m-d' }}">
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <button id="proposeBtn" class="btn btn-primary">Propose to SMMU</button>
+          <small class="text-muted ms-2">This will send the proposed centre & dates to the Thematic expert for approval.</small>
+        </div>
+
+        <div id="partnerNotify" style="display:none;" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast markup (Bootstrap 5) - unobtrusive top-right toast for visual confirmation -->
+  <div class="position-fixed top-0 end-0 p-3" style="z-index: 99999;">
+    <div id="proposalToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="5000">
+      <div class="toast-header">
+        <strong class="me-auto">Training Proposal</strong>
+        <small class="text-muted"></small>
+        <button type="button" class="btn-close ms-2 mb-1" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body"></div>
+    </div>
+  </div>
+
+  <!-- small script to call partner_propose_dates view -->
+  <script>
+  (function(){
+    // CSRF helper (reads csrftoken cookie)
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const c = cookies[i].trim();
+          if (c.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(c.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+    const CSRF_TOKEN = getCookie('csrftoken');
+
+    const proposeBtn = document.getElementById('proposeBtn');
+    const notify = document.getElementById('partnerNotify');
+
+    // Toast init (Bootstrap 5)
+    let toastEl = document.getElementById('proposalToast');
+    let toastInstance = null;
+    try {
+      if (toastEl && window.bootstrap && window.bootstrap.Toast) {
+        toastInstance = new bootstrap.Toast(toastEl);
+      }
+    } catch (e) {
+      console.warn('Toast init failed', e);
+      toastInstance = null;
+    }
+
+    function showToastMessage(message, isError) {
+      if (!toastEl) return;
+      // set header small text and body
+      const headerSmall = toastEl.querySelector('.toast-header small');
+      const body = toastEl.querySelector('.toast-body');
+      body.textContent = message;
+      headerSmall.textContent = isError ? 'Error' : 'Sent';
+      // style header text red for errors
+      const header = toastEl.querySelector('.toast-header');
+      if (isError) {
+        header.classList.add('text-danger');
+      } else {
+        header.classList.remove('text-danger');
+      }
+      try { toastInstance?.show(); } catch(e) { /* ignore */ }
+    }
+
+    proposeBtn?.addEventListener('click', function(){
+      // disable button while request in progress
+      proposeBtn.disabled = true;
+      const prevText = proposeBtn.textContent;
+      proposeBtn.textContent = 'Sending...';
+
+      const payload = {
+        batch_id: {{ batch.id }},
+        centre: document.getElementById('centreInput').value || '',
+        start: document.getElementById('startDateInput').value || '',
+        end: document.getElementById('endDateInput').value || ''
+      };
+
+      fetch("{% url 'partner_propose_dates' %}", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': CSRF_TOKEN
+        },
+        body: JSON.stringify(payload)
+      }).then(async (r) => {
+        proposeBtn.disabled = false;
+        proposeBtn.textContent = prevText;
+        let data;
+        try { data = await r.json(); } catch(e) { data = null; }
+
+        if (r.ok && data && data.ok) {
+          // update inline notify area (existing behaviour)
+          notify.style.display = 'block';
+          notify.className = 'alert alert-success';
+          notify.innerText = 'Proposal sent successfully. New status: ' + (data.new_status || 'N/A');
+
+          // show toast popup (new)
+          showToastMessage('Proposal sent to SMMU. They will be notified to approve.', false);
+
+          // short delay then reload to reflect updated status/fields
+          setTimeout(function(){ window.location.reload(); }, 900);
+        } else {
+          notify.style.display = 'block';
+          notify.className = 'alert alert-danger';
+          const errMsg = (data && (data.error || data.message)) ? (data.error || data.message) : ('HTTP ' + r.status);
+          notify.innerText = 'Failed to send proposal: ' + errMsg;
+
+          // show error toast as well
+          showToastMessage('Failed to send proposal: ' + (errMsg || 'Server error'), true);
+        }
+      }).catch((err) => {
+        proposeBtn.disabled = false;
+        proposeBtn.textContent = 'Propose to SMMU';
+        notify.style.display = 'block';
+        notify.className = 'alert alert-danger';
+        notify.innerText = 'Request failed — check console for details.';
+        console.error('partner_propose_dates error', err);
+
+        // show toast on network error
+        showToastMessage('Network or server error — try again.', true);
+      });
+    });
+  })();
+  </script>
+{% endblock %}

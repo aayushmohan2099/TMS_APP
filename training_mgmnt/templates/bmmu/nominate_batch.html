@@ -1,0 +1,5 @@
+<form method="post" id="nominateBatchForm">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button class="btn btn-primary" type="submit">Nominate Batch</button>
+</form>

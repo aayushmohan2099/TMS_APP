@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    {% if download_blueprint_url %}
+        <li>
+            <a href="{{ download_blueprint_url }}" class="addlink">Download Blueprint</a>
+        </li>
+    {% endif %}
+{% endblock %}

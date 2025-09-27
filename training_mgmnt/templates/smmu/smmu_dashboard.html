@@ -1,0 +1,70 @@
+{% load static %}
+<div class="container-fluid">
+  <h3 class="mb-3">SMMU Dashboard</h3>
+
+  <div class="row mb-4">
+    <div class="col-md-6" style="height:280px;">
+      <canvas id="chart1"></canvas>
+    </div>
+    <div class="col-md-6" style="height:280px;">
+      <canvas id="chart2"></canvas>
+    </div>
+  </div>
+
+  <h4 class="mb-3">Trainings for your themes</h4>
+  <div class="card mb-3">
+    <div class="card-body">
+      <p class="text-muted small">Showing trainings for themes you are expert for: {% if themes %} {{ themes|join:", " }} {% else %} (no assigned themes) {% endif %}</p>
+
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+          <thead class="table-dark">
+            <tr>
+              <th>Batch</th><th>Training</th><th>Theme</th><th>Partner</th><th>Start</th><th>End</th><th>Trainers</th><th>Participants</th><th>Status</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in batches %}
+              <tr>
+                <td>{{ b.code }}</td>
+                <td>{{ b.module }}</td>
+                <td>{{ b.theme }}</td>
+                <td>{{ b.partner|default:"—" }}</td>
+                <td>{{ b.start|default:"—" }}</td>
+                <td>{{ b.end|default:"—" }}</td>
+                <td>{{ b.trainers_count }}</td>
+                <td>{{ b.participants_count }}</td>
+                <td>{{ b.status }}</td>
+                <td><a class="btn btn-sm btn-primary" href="{% url 'smmu_request_detail' b.id %}">Open</a></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="10">No trainings found for your themes.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart JS init -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function(){
+  try {
+    const labels = {{ chart_labels_json|safe }};
+    const data1 = {{ chart1_json|safe }};
+    const data2 = {{ chart2_json|safe }};
+    const c1 = document.getElementById('chart1');
+    if (c1) {
+      const ctx1 = c1.getContext('2d');
+      new Chart(ctx1, { type:'bar', data:{ labels: labels, datasets:[{ label:'Metric 1', data: data1 }] }, options:{ responsive:true, maintainAspectRatio:false }});
+    }
+    const c2 = document.getElementById('chart2');
+    if (c2) {
+      const ctx2 = c2.getContext('2d');
+      new Chart(ctx2, { type:'line', data:{ labels: labels, datasets:[{ label:'Metric 2', data: data2, fill:false }] }, options:{ responsive:true, maintainAspectRatio:false }});
+    }
+  } catch(e) { console.warn('smmu dashboard chart init', e); }
+})();
+</script>

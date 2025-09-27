@@ -1,0 +1,12 @@
+{% extends "master_trainer/base_trainer.html" %}
+{% block content %}
+  <div class="container py-5">
+    <h4>Delete Certificate</h4>
+    <p>Are you sure you want to delete certificate: <strong>{{ cert.training_name }}</strong>?</p>
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger">Yes, delete</button>
+      <a class="btn btn-secondary" href="{% url 'master_trainer_education' %}?tab=certificates">Cancel</a>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% load static %}
+<div class="container-fluid">
+  <form method="post" id="addBeneficiaryForm" class="row g-3">
+    {% csrf_token %}
+
+    {% comment %} Render visible fields in two-column layout. Use Bootstrap classes. {% endcomment %}
+    {% with fields=form.visible_fields %}
+      {% for field in fields %}
+        {# Decide column width - most fields col-md-6; you can customize long fields to col-md-12 if desired #}
+        <div class="col-md-6">
+          <label class="form-label fw-bold" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
+          <div>
+            {{ field }}
+          </div>
+          {% if field.errors %}
+            <div class="text-danger small">{{ field.errors|striptags }}</div>
+          {% endif %}
+          {% if field.help_text %}
+            <div class="form-text small">{{ field.help_text }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="col-12 d-flex justify-content-end mt-3">
+      <button type="submit" name="save" class="btn btn-primary me-2">Save</button>
+      <button type="submit" name="save_and_add_next" class="btn btn-outline-primary">Save & Add Next</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // keep hooks in place if this fragment is returned via AJAX
+  (function(){
+    const form = document.getElementById('addBeneficiaryForm');
+    if (!form) return;
+    form.addEventListener('submit', function(e){
+      // nothing special required client-side; server handles save and optional save_and_add_next.
+    });
+  }());
+</script>

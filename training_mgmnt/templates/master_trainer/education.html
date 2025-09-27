@@ -1,0 +1,93 @@
+{% extends "master_trainer/base_trainer.html" %}
+{% load static %}
+
+{% block title %}My Education{% endblock %}
+{% block header_title %}My Education{% endblock %}
+{% block header_subtitle %}Add achievements and upload certificates per training module.{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link {% if tab == 'achievements' %}active{% endif %}" href="?tab=achievements">Achievements</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'certificates' %}active{% endif %}" href="?tab=certificates">Certificates</a></li>
+  </ul>
+
+  {% if tab == 'achievements' %}
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label">Other Achievements / ToTs / Notes</label>
+        <textarea name="other_achievements" class="form-control" rows="8">{{ master_trainer.other_achievements }}</textarea>
+      </div>
+      <button name="save_achievements" class="btn btn-primary">Save Achievements</button>
+      <a class="btn btn-outline-secondary" href="{% url 'master_trainer_dashboard' %}">Back</a>
+    </form>
+
+  {% else %}
+    <!-- certificates tab -->
+    <div class="row">
+      <div class="col-md-6">
+        <h5>Upload Certificate</h5>
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          {{ cert_form.non_field_errors }}
+          <div class="mb-2">
+            <label class="form-label">Training / Module (link to Training Plan)</label>
+            {{ cert_form.training_module }}
+            {{ cert_form.training_module.errors }}
+            <div class="form-text">Optional — link certificate to an existing training plan.</div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Certificate Number</label>
+            {{ cert_form.certificate_number }}
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Issue Date</label>
+            {{ cert_form.issued_on }}
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Certificate File (pdf/jpg/png)</label>
+            {{ cert_form.certificate_file }}
+          </div>
+          <div class="mb-2">
+            <button name="add_certificate" class="btn btn-primary">Upload</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="col-md-6">
+        <h5>Your Certificates</h5>
+        {% if certs %}
+          <div class="list-group">
+            {% for c in certs %}
+              <div class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-bold">
+                    {% if c.training_module %}
+                      {{ c.training_module.training_name }}
+                    {% else %}
+                      Certificate
+                    {% endif %}
+                  </div>
+                  <div class="small text-muted">Number: {{ c.certificate_number }} | Issued: {{ c.issued_on }}</div>
+                </div>
+                <div class="text-end">
+                  {% if c.certificate_file %}
+                    <a class="btn btn-sm btn-outline-primary me-1" href="{{ c.certificate_file.url }}" target="_blank">View</a>
+                  {% endif %}
+                  <form method="post" action="{% url 'master_trainer_certificate_delete' c.id %}" style="display:inline;">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-danger">Delete</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">No certificates uploaded yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

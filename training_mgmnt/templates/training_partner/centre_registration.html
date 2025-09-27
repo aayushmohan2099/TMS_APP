@@ -1,0 +1,82 @@
+{% extends "training_partner/base_partner.html" %}
+{% load static %}
+
+{% block title %}Centre Registration{% endblock %}
+{% block header_title %}Centre Registration{% endblock %}
+{% block header_subtitle %}Upload centre documents and photos (fooding, toilet, hostel, centre front etc.){% endblock %}
+
+{% block content %}
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="mb-3">Upload Submission</h5>
+          <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="mb-2">
+              <label class="form-label">Category</label>
+              {{ form.category }}
+              {{ form.category.errors }}
+            </div>
+            <div class="mb-2">
+              <label class="form-label">File (PDF / JPG / PNG)</label>
+              {{ form.file }}
+              {{ form.file.errors }}
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Notes</label>
+              {{ form.notes }}
+              {{ form.notes.errors }}
+            </div>
+            <div>
+              <button class="btn btn-primary" type="submit">Upload</button>
+              <a class="btn btn-outline-secondary" href="{% url 'training_partner_dashboard' %}">Back</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="mb-3">Recent Submissions</h5>
+          {% if submissions %}
+            <ul class="list-group">
+              {% for s in submissions %}
+                <li class="list-group-item">
+                  <div class="d-flex justify-content-between">
+                    <div>
+                      <div class="fw-bold">{{ s.get_category_display }}</div>
+                      <div class="small text-muted">
+                        {{ s.uploaded_on|date:"Y-m-d H:i" }}
+                        &nbsp; by
+                        {% if s.uploaded_by %}
+                          {{ s.uploaded_by.username }}
+                        {% else %}
+                          (unknown)
+                        {% endif %}
+                      </div>
+
+                      {% if s.notes %}
+                        <div class="mt-1">{{ s.notes }}</div>
+                      {% endif %}
+                    </div>
+
+                    <div class="text-end">
+                      {% if s.file %}
+                        <a class="btn btn-sm btn-outline-primary" href="{{ s.file.url }}" target="_blank">Open</a>
+                      {% endif %}
+                    </div>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="text-muted">No submissions yet.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
