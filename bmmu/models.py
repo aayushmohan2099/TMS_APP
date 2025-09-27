@@ -22,6 +22,111 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+# -------------------------
+# District, Block, Panchayat, Village models
+# -------------------------
+class District(models.Model):
+    district_id = models.BigIntegerField(primary_key=True)   # API id
+    district_code = models.CharField(max_length=50, blank=True, null=True)
+    state_id = models.IntegerField(blank=True, null=True, db_index=True)
+    district_name_en = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    district_short_name_en = models.CharField(max_length=50, blank=True, null=True)
+    district_name_local = models.CharField(max_length=255, blank=True, null=True)
+    lgd_code = models.CharField(max_length=64, blank=True, null=True)
+    language_id = models.CharField(max_length=20, blank=True, null=True)
+
+    class Meta:
+        verbose_name = "District"
+        verbose_name_plural = "Districts"
+        indexes = [
+            models.Index(fields=['state_id']),
+            models.Index(fields=['district_name_en']),
+        ]
+
+    def __str__(self):
+        return f"{self.district_name_en or self.district_id}"
+
+
+class Block(models.Model):
+    block_id = models.BigIntegerField(primary_key=True)  # API block_id
+    block_code = models.CharField(max_length=64, blank=True, null=True)
+    block_name_en = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    block_name_local = models.CharField(max_length=255, blank=True, null=True)
+    rural_urban_area = models.CharField(max_length=5, blank=True, null=True)
+    lgd_code = models.CharField(max_length=64, blank=True, null=True)
+    language_id = models.CharField(max_length=20, blank=True, null=True)
+    state_id = models.IntegerField(blank=True, null=True, db_index=True)
+
+    # relations
+    district = models.ForeignKey(District, on_delete=models.CASCADE, related_name='blocks', db_index=True)
+
+    # optional convenience column if CSV contains district_name_en in block rows
+    district_name_en = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Block"
+        verbose_name_plural = "Blocks"
+        indexes = [
+            models.Index(fields=['district']),
+            models.Index(fields=['block_name_en']),
+        ]
+
+    def __str__(self):
+        return f"{self.block_name_en or self.block_id}"
+
+
+class Panchayat(models.Model):
+    panchayat_id = models.BigIntegerField(primary_key=True)
+    panchayat_code = models.CharField(max_length=64, blank=True, null=True)
+    panchayat_name_en = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    panchayat_name_local = models.CharField(max_length=255, blank=True, null=True)
+    rural_urban_area = models.CharField(max_length=5, blank=True, null=True)
+    language_id = models.CharField(max_length=20, blank=True, null=True)
+    lgd_code = models.CharField(max_length=64, blank=True, null=True)
+    state_id = models.IntegerField(blank=True, null=True, db_index=True)
+
+    # relations
+    district = models.ForeignKey(District, on_delete=models.CASCADE, related_name='panchayats', db_index=True)
+    block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name='panchayats', db_index=True)
+
+    class Meta:
+        verbose_name = "Panchayat"
+        verbose_name_plural = "Panchayats"
+        indexes = [
+            models.Index(fields=['district', 'block']),
+            models.Index(fields=['panchayat_name_en']),
+        ]
+
+    def __str__(self):
+        return f"{self.panchayat_name_en or self.panchayat_id}"
+
+
+class Village(models.Model):
+    village_id = models.BigIntegerField(primary_key=True)   # maps to villageId in API
+    village_code = models.CharField(max_length=128, blank=True, null=True)
+    village_name_english = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    village_name_local = models.CharField(max_length=255, blank=True, null=True)
+    rural_urban_area = models.CharField(max_length=5, blank=True, null=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    lgd_code = models.CharField(max_length=64, blank=True, null=True)
+
+    # relations
+    panchayat = models.ForeignKey(Panchayat, on_delete=models.CASCADE, related_name='villages', db_index=True)
+    # duplicate parent ids for convenience / query speed
+    state_id = models.IntegerField(blank=True, null=True, db_index=True)
+    district_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+    block_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Village"
+        verbose_name_plural = "Villages"
+        indexes = [
+            models.Index(fields=['panchayat']),
+            models.Index(fields=['village_name_english']),
+        ]
+
+    def __str__(self):
+        return f"{self.village_name_english or self.village_id}"
 
 # -------------------------
 # Beneficiary

@@ -24,8 +24,14 @@ from .models import (
     TrainerBatchParticipation,
     BeneficiaryBatchRegistration,
     TrainingPartnerTargets,
+    # geography models
+    District,
+    Block,
+    Panchayat,
+    Village,
 )
-from .utils import export_blueprint
+
+# Resources (some were in your snippet; if missing add or remove as needed)
 from .resources import (
     UserResource,
     BeneficiaryResource,
@@ -37,6 +43,9 @@ from .resources import (
     TrainingPartnerTargetsResource,
 )
 
+from .utils import export_blueprint
+
+# If you used get_user_model() earlier, ensure consistency
 User = get_user_model()
 
 
@@ -108,9 +117,9 @@ class CustomUserChangeForm(forms.ModelForm):
 @admin.register(User)
 class UserAdmin(BlueprintAdminMixin, ImportExportModelAdmin, BaseUserAdmin):
     resource_class = UserResource
-    list_display = ('id', 'username', 'role', 'created_at')
-    search_fields = ('username', 'first_name', 'last_name', 'role')
-    list_filter = ('role', 'created_at')
+    list_display = ('id', 'username', 'role', 'is_active', 'is_staff', 'created_at')
+    search_fields = ('username', 'first_name', 'last_name', 'email', 'role')
+    list_filter = ('role', 'is_active', 'is_staff', 'created_at')
 
     add_form = CustomUserCreationForm
     form = CustomUserChangeForm
@@ -130,25 +139,24 @@ class UserAdmin(BlueprintAdminMixin, ImportExportModelAdmin, BaseUserAdmin):
     )
 
     def save_model(self, request, obj, form, change):
-        password = form.cleaned_data.get("password") or None
-        if password:
-            obj.set_password(password)
+        # If password provided in change form, ensure it's hashed
+        raw_password = form.cleaned_data.get("password")
+        if raw_password:
+            obj.set_password(raw_password)
         super().save_model(request, obj, form, change)
 
 
 @admin.register(Beneficiary)
 class BeneficiaryAdmin(BlueprintAdminMixin, ImportExportModelAdmin):
     resource_class = BeneficiaryResource
-    list_display = ('id', 'member_name', 'member_code', 'shg_code', 'district', 'mobile_no', 'aadhaar_no')
+    list_display = ('id', 'member_name', 'member_code', 'shg_code', 'district', 'mobile_no', 'aadhaar_no', 'created_at')
     search_fields = ('member_name', 'member_code', 'shg_code', 'mobile_no', 'aadhaar_no')
-    list_filter = ('district', 'bank_name', 'social_category')
+    list_filter = ('district', 'bank_name', 'social_category', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(TrainingPlan)
 class TrainingPlanAdmin(BlueprintAdminMixin, ImportExportModelAdmin):
-    """
-    TrainingPlan admin updated to reflect model that only has theme_expert (no training_partner).
-    """
     resource_class = TrainingPlanResource
 
     list_display = (
@@ -195,6 +203,7 @@ class MasterTrainerCertificateInline(admin.TabularInline):
     extra = 0
     readonly_fields = ('created_at',)
     fields = ('certificate_number', 'training_module', 'issued_on', 'certificate_file', 'created_at')
+    autocomplete_fields = ('training_module',)
 
 
 @admin.register(MasterTrainer)
@@ -214,7 +223,7 @@ class MasterTrainerAdmin(ImportExportModelAdmin, admin.ModelAdmin):
     search_fields = (
         'full_name', 'skills', 'empanel_district', 'mobile_no', 'aadhaar_no'
     )
-    list_filter = ('empanel_district',)
+    list_filter = ('empanel_district', 'designation')
     readonly_fields = ('created_at',)
 
     def skills_short(self, obj):
@@ -231,6 +240,7 @@ class MasterTrainerCertificateAdmin(ImportExportModelAdmin, admin.ModelAdmin):
     list_display = ('id', 'trainer', 'certificate_number', 'training_module', 'issued_on', 'created_at')
     search_fields = ('trainer__full_name', 'certificate_number', 'training_module__training_name')
     readonly_fields = ('created_at',)
+    autocomplete_fields = ('trainer', 'training_module')
 
 
 @admin.register(MasterTrainerExpertise)
@@ -247,7 +257,7 @@ class BatchAdmin(admin.ModelAdmin):
         'id', 'code', 'training_plan', 'start_date', 'end_date',
         'partner', 'status', 'created_by', 'created_at'
     )
-    search_fields = ('code', 'training_plan__training_name', 'training_plan__theme')
+    search_fields = ('code', 'training_plan__training_name', 'training_plan__theme', 'partner__name')
     list_filter = ('status', 'partner', 'training_plan__theme')
 
     autocomplete_fields = ('training_plan', 'partner', 'created_by')
@@ -259,6 +269,7 @@ class TrainingPartnerAssignmentAdmin(admin.ModelAdmin):
     list_display = ('id', 'theme', 'block', 'partner', 'created_at')
     search_fields = ('theme', 'block', 'partner__name')
     list_filter = ('partner',)
+    autocomplete_fields = ('partner',)
 
 
 # Inlines for TrainingPartner
@@ -309,3 +320,102 @@ class TrainingPartnerAdmin(BlueprintAdminMixin, ImportExportModelAdmin):
             "fields": ('created_at',)
         }),
     )
+
+
+# TrainingPartnerSubmission admin (also provide resource)
+@admin.register(TrainingPartnerSubmission)
+class TrainingPartnerSubmissionAdmin(ImportExportModelAdmin, admin.ModelAdmin):
+    resource_class = TrainingPartnerSubmissionResource
+    list_display = ('id', 'partner', 'category', 'uploaded_by', 'uploaded_on')
+    search_fields = ('partner__name', 'uploaded_by__username', 'category')
+    readonly_fields = ('uploaded_on',)
+    autocomplete_fields = ('partner', 'uploaded_by')
+    list_filter = ('category', 'uploaded_on')
+
+
+@admin.register(TrainingPartnerTargets)
+class TrainingPartnerTargetsAdmin(ImportExportModelAdmin, admin.ModelAdmin):
+    resource_class = TrainingPartnerTargetsResource
+    list_display = ('id', 'partner', 'target_type', 'target_key', 'target_count', 'allocated_by', 'created_at')
+    search_fields = ('partner__name', 'target_key')
+    list_filter = ('target_type',)
+    autocomplete_fields = ('partner', 'allocated_by')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(TrainingPlanPartner)
+class TrainingPlanPartnerAdmin(admin.ModelAdmin):
+    list_display = ('id', 'training_plan', 'partner', 'drp_payments', 'assigned_on', 'assigned_by')
+    search_fields = ('training_plan__training_name', 'partner__name')
+    autocomplete_fields = ('training_plan', 'partner', 'assigned_by')
+    readonly_fields = ('assigned_on',)
+
+
+@admin.register(TrainingPartnerBatch)
+class TrainingPartnerBatchAdmin(admin.ModelAdmin):
+    list_display = ('id', 'partner', 'batch', 'drp_payment_actual', 'status', 'assigned_on')
+    search_fields = ('partner__name', 'batch__code')
+    list_filter = ('status',)
+    autocomplete_fields = ('partner', 'batch',)
+    readonly_fields = ('assigned_on',)
+
+
+@admin.register(TrainerBatchParticipation)
+class TrainerBatchParticipationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'trainer', 'batch', 'participated', 'status', 'created_at')
+    search_fields = ('trainer__full_name', 'batch__code')
+    list_filter = ('status', 'participated')
+    autocomplete_fields = ('trainer', 'batch')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(BeneficiaryBatchRegistration)
+class BeneficiaryBatchRegistrationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'beneficiary', 'batch', 'registered_on', 'attended')
+    search_fields = ('beneficiary__member_name', 'beneficiary__member_code', 'batch__code')
+    list_filter = ('attended', 'registered_on')
+    autocomplete_fields = ('beneficiary', 'batch')
+    readonly_fields = ('registered_on',)
+
+
+# -------------------------
+# Geography admin (District / Block / Panchayat / Village)
+# -------------------------
+@admin.register(District)
+class DistrictAdmin(admin.ModelAdmin):
+    list_display = ('district_id', 'district_name_en', 'district_code', 'state_id', 'lgd_code', 'language_id')
+    search_fields = ('district_name_en', 'district_code', 'lgd_code')
+    list_filter = ('state_id', 'language_id')
+    readonly_fields = ()
+    ordering = ('district_name_en',)
+
+
+@admin.register(Block)
+class BlockAdmin(admin.ModelAdmin):
+    list_display = ('block_id', 'block_name_en', 'block_code', 'district', 'district_name_en', 'state_id', 'rural_urban_area')
+    search_fields = ('block_name_en', 'block_code', 'district__district_name_en')
+    list_filter = ('state_id', 'rural_urban_area')
+    autocomplete_fields = ('district',)
+    ordering = ('district', 'block_name_en')
+
+
+@admin.register(Panchayat)
+class PanchayatAdmin(admin.ModelAdmin):
+    list_display = ('panchayat_id', 'panchayat_name_en', 'block', 'district', 'state_id', 'rural_urban_area')
+    search_fields = ('panchayat_name_en', 'panchayat_code', 'block__block_name_en', 'district__district_name_en')
+    list_filter = ('state_id', 'rural_urban_area')
+    autocomplete_fields = ('district', 'block')
+    ordering = ('district', 'block', 'panchayat_name_en')
+
+
+@admin.register(Village)
+class VillageAdmin(admin.ModelAdmin):
+    list_display = ('village_id', 'village_name_english', 'panchayat', 'district_id', 'block_id', 'is_active')
+    search_fields = ('village_name_english', 'village_code', 'panchayat__panchayat_name_en')
+    list_filter = ('is_active',)
+    autocomplete_fields = ('panchayat',)
+    ordering = ('panchayat', 'village_name_english')
+
+
+# If there are models/resources you haven't yet created in resources.py, remove resource_class for those admin classes
+# or create corresponding resources. The BlueprintAdminMixin requires resource_class to be present.
