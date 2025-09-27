@@ -25,6 +25,20 @@ class User(AbstractUser):
 # -------------------------
 # District, Block, Panchayat, Village models
 # -------------------------
+class Mandal(models.Model):
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255, db_index=True)
+
+    class Meta:
+        verbose_name = "Mandal"
+        verbose_name_plural = "Mandals"
+        indexes = [
+            models.Index(fields=['name']),
+        ]
+
+    def __str__(self):
+        return self.name
+
 class District(models.Model):
     district_id = models.BigIntegerField(primary_key=True)   # API id
     district_code = models.CharField(max_length=50, blank=True, null=True)
@@ -34,6 +48,15 @@ class District(models.Model):
     district_name_local = models.CharField(max_length=255, blank=True, null=True)
     lgd_code = models.CharField(max_length=64, blank=True, null=True)
     language_id = models.CharField(max_length=20, blank=True, null=True)
+
+    # mandal FK -> A mandal can have many districts (District belongs to one Mandal)
+    mandal = models.ForeignKey(
+        Mandal,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='districts'
+    )
 
     class Meta:
         verbose_name = "District"
@@ -62,6 +85,9 @@ class Block(models.Model):
 
     # optional convenience column if CSV contains district_name_en in block rows
     district_name_en = models.CharField(max_length=255, blank=True, null=True)
+
+    # aspirational (True/False)
+    is_aspirational = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         verbose_name = "Block"
@@ -127,6 +153,23 @@ class Village(models.Model):
 
     def __str__(self):
         return f"{self.village_name_english or self.village_id}"
+
+class DistrictCategory(models.Model):
+    id = models.AutoField(primary_key=True)
+    district = models.ForeignKey('District', on_delete=models.CASCADE, related_name='categories', db_index=True)
+    category_name = models.CharField(max_length=255, db_index=True)
+
+    class Meta:
+        verbose_name = "District Category"
+        verbose_name_plural = "District Categories"
+        unique_together = ('district', 'category_name')
+        indexes = [
+            models.Index(fields=['district']),
+            models.Index(fields=['category_name']),
+        ]
+
+    def __str__(self):
+        return f"{self.district} -> {self.category_name}"
 
 # -------------------------
 # Beneficiary

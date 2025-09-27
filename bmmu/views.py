@@ -361,15 +361,30 @@ def load_app_content(request, app_name):
             ]
 
             # trainers (MasterTrainer)
-            mt_qs = MasterTrainer.objects.all()[:1000]
-            trainers = [
-                {
+            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')[:1000]
+            trainers = []
+            for t in mt_qs:
+                # get latest certificate_number (prefer issued_on then id)
+                cert_num = ''
+                # certificates related_name is 'certificates' per your model
+                latest = None
+                try:
+                    # attempt to find the latest using issued_on then id
+                    latest = next(iter(sorted(t.certificates.all(), key=lambda c: ((c.issued_on or ''), c.id), reverse=True)), None)
+                except Exception:
+                    # fallback: use queryset ordering
+                    latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
+                    cert_num = latest_q.first() or ''
+                else:
+                    if latest:
+                        cert_num = latest.certificate_number or ''
+
+                trainers.append({
                     'id': t.id,
                     'full_name': t.full_name,
-                    'certificate_number': t.certificate_number or '',
+                    'certificate_number': cert_num,
                     'skills': getattr(t, 'skills', '') or ''
-                } for t in mt_qs
-            ]
+                })
 
             # trainers_map: explicit MasterTrainerExpertise if available
             try:
@@ -710,15 +725,26 @@ def training_program_management(request):
             ]
 
             # trainers: all master trainers (limited)
-            mt_qs = MasterTrainer.objects.all()[:1000]
-            trainers = [
-                {
+            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')[:1000]
+            trainers = []
+            for t in mt_qs:
+                cert_num = ''
+                latest = None
+                try:
+                    latest = next(iter(sorted(t.certificates.all(), key=lambda c: ((c.issued_on or ''), c.id), reverse=True)), None)
+                except Exception:
+                    latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
+                    cert_num = latest_q.first() or ''
+                else:
+                    if latest:
+                        cert_num = latest.certificate_number or ''
+
+                trainers.append({
                     'id': t.id,
                     'full_name': t.full_name,
-                    'certificate_number': t.certificate_number or '',
+                    'certificate_number': cert_num,
                     'skills': (t.skills or '')
-                } for t in mt_qs
-            ]
+                })
 
             # trainers_map: first use explicit MasterTrainerExpertise if present
             # fall back to matching trainer.skills contains training_name or theme tokens

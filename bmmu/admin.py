@@ -29,6 +29,9 @@ from .models import (
     Block,
     Panchayat,
     Village,
+    # new models
+    Mandal,
+    DistrictCategory,
 )
 
 # Resources (some were in your snippet; if missing add or remove as needed)
@@ -379,22 +382,50 @@ class BeneficiaryBatchRegistrationAdmin(admin.ModelAdmin):
 
 
 # -------------------------
-# Geography admin (District / Block / Panchayat / Village)
+# Geography admin (District / Block / Panchayat / Village / Mandal / DistrictCategory)
 # -------------------------
+
+# Inline to display Districts under Mandal admin
+class DistrictInlineForMandal(admin.TabularInline):
+    model = District
+    fields = ('district_id', 'district_name_en', 'state_id')
+    readonly_fields = ('district_id', 'district_name_en', 'state_id')
+    extra = 0
+    can_delete = False
+    show_change_link = True
+
+
+@admin.register(Mandal)
+class MandalAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name')
+    search_fields = ('name',)
+    inlines = (DistrictInlineForMandal,)
+    ordering = ('name',)
+
+
+@admin.register(DistrictCategory)
+class DistrictCategoryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'district', 'category_name')
+    search_fields = ('district__district_name_en', 'category_name')
+    list_filter = ('category_name',)
+    autocomplete_fields = ('district',)
+
+
 @admin.register(District)
 class DistrictAdmin(admin.ModelAdmin):
-    list_display = ('district_id', 'district_name_en', 'district_code', 'state_id', 'lgd_code', 'language_id')
+    list_display = ('district_id', 'district_name_en', 'mandal', 'district_code', 'state_id', 'lgd_code', 'language_id')
     search_fields = ('district_name_en', 'district_code', 'lgd_code')
-    list_filter = ('state_id', 'language_id')
+    list_filter = ('state_id', 'language_id', 'mandal')
     readonly_fields = ()
     ordering = ('district_name_en',)
+    autocomplete_fields = ('mandal',)
 
 
 @admin.register(Block)
 class BlockAdmin(admin.ModelAdmin):
-    list_display = ('block_id', 'block_name_en', 'block_code', 'district', 'district_name_en', 'state_id', 'rural_urban_area')
+    list_display = ('block_id', 'block_name_en', 'block_code', 'district', 'district_name_en', 'state_id', 'rural_urban_area', 'is_aspirational')
     search_fields = ('block_name_en', 'block_code', 'district__district_name_en')
-    list_filter = ('state_id', 'rural_urban_area')
+    list_filter = ('state_id', 'rural_urban_area', 'is_aspirational')
     autocomplete_fields = ('district',)
     ordering = ('district', 'block_name_en')
 
