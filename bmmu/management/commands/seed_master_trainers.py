@@ -1,13 +1,12 @@
 # bmmu/management/commands/seed_master_trainers.py
 import random
 import string
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db import IntegrityError
 
 from bmmu.models import MasterTrainer, MasterTrainerCertificate, TrainingPlan
 
@@ -23,7 +22,7 @@ LAST_NAMES = [
     "Reddy","Nair","Mehta","Iyer","Joshi","Saxena","Agarwal","Bhat","Alvi","Malhotra"
 ]
 
-DISTRICTS = ["AGRA", "LUCKNOW", "KANPUR", "ALLAHABAD", "GORAKHPUR", "VARANASI", "GORAKHPUR", "MATHURA", "FIROZABAD"]
+DISTRICTS = ["AGRA", "LUCKNOW", "KANPUR", "ALLAHABAD", "GORAKHPUR", "VARANASI", "MATHURA", "FIROZABAD"]
 BANKS = [
     ("Punjab National Bank", "PUNB17IF"),
     ("State Bank of India", "SBIN0001234"),
@@ -38,13 +37,11 @@ DESIGNS = ["DRP", "SRP"]
 def random_name():
     return f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}"
 
-def random_mobile(prefix="9"):
-    # produce 10-digit mobile starting with 7-9
+def random_mobile():
     first = random.choice(["7","8","9"])
     return first + "".join(random.choice("0123456789") for _ in range(9))
 
 def random_aadhaar():
-    # 12-digit-ish number (not real Aadhaar)
     return "".join(random.choice("0123456789") for _ in range(12))
 
 def random_bank_account():
@@ -52,33 +49,32 @@ def random_bank_account():
 
 def random_ifsc_and_bank():
     bank, ifsc = random.choice(BANKS)
-    # ensure IFSC length plausible; allow existing or create pseudo IFSC
     if not ifsc or len(ifsc) < 8:
         ifsc = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(11))
     return bank, ifsc
 
-def random_date_between(start_year=1970, end_year=1998):
+def random_date_between(start_year=1965, end_year=1998):
     start = date(start_year, 1, 1)
-    end = date(end_year, 12, 31)
-    delta = (end - start).days
+    endd = date(end_year, 12, 31)
+    delta = (endd - start).days
     return start + timedelta(days=random.randint(0, max(0, delta)))
 
 def sample_skills():
     sectors = [
         "Livelihood", "Financial Inclusion", "Agriculture", "Entrepreneurship",
-        "SHG strengthening", "Nutrition", "Water Sanitation", "WASH", "Vocational training",
+        "SHG strengthening", "Nutrition", "WASH", "Vocational training",
         "Digital Literacy", "Gender", "Health"
     ]
     picks = random.sample(sectors, k=random.randint(1, 4))
     return ", ".join(picks)
 
 class Command(BaseCommand):
-    help = "Seed MasterTrainer and MasterTrainerCertificate demo data (300-320 trainers by default)."
+    help = "Seed MasterTrainer and MasterTrainerCertificate demo data. Requires existing TrainingPlan rows."
 
     def add_arguments(self, parser):
         parser.add_argument("--count", type=int, default=310, help="Number of master trainers to create (default 310).")
         parser.add_argument("--max-certs", type=int, default=3, help="Max certificates per trainer (1..max).")
-        parser.add_argument("--create-users", action="store_true", help="Also create associated User with username=mobile_no and password='password'.")
+        parser.add_argument("--create-users", action="store_true", help="Also create associated User with username=mobile_no and password=<first_name>@123.")
         parser.add_argument("--chunk", type=int, default=200, help="Chunk size for bulk_create.")
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducibility.")
 
@@ -94,26 +90,30 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Seeding {count} MasterTrainer rows (max_certs={max_certs}, create_users={create_users})")
 
-        # collect mobiles for lookup after bulk_create
+        # gather existing training plan ids — MUST be present
+        plan_ids = list(TrainingPlan.objects.values_list("id", flat=True))
+        if not plan_ids:
+            self.stderr.write("ERROR: No TrainingPlan rows found in the database.")
+            self.stderr.write("Please create at least one TrainingPlan (via admin or import) before running this seeder.")
+            return 2
+
+        self.stdout.write(f"Found {len(plan_ids)} TrainingPlan rows (certificates will be linked randomly to these).")
+
+        # build trainers in-memory and bulk_create in chunks
         generated_mobiles = []
         trainers_buffer = []
+        created_count = 0
 
-        # Ensure we have TrainingPlan IDs available for linking certificates (optional)
-        plan_ids = list(TrainingPlan.objects.values_list("id", flat=True))
-        self.stdout.write(f"Found {len(plan_ids)} TrainingPlan rows to possibly link certificates.")
-
-        # create trainer dicts
         for i in range(count):
             full_name = random_name()
             mobile = random_mobile()
-            # ensure unique mobile in this run
+            # ensure unique mobile in this run and avoid collisions with existing MasterTrainer mobiles
             while mobile in generated_mobiles or MasterTrainer.objects.filter(mobile_no=mobile).exists():
                 mobile = random_mobile()
             generated_mobiles.append(mobile)
 
             aadhaar = random_aadhaar()
-            # date_of_birth between 1965 and 1998
-            dob = random_date_between(1965, 1998)
+            dob = random_date_between()
             bank_name, ifsc = random_ifsc_and_bank()
             acc = random_bank_account()
             district = random.choice(DISTRICTS)
@@ -150,86 +150,82 @@ class Command(BaseCommand):
             )
             trainers_buffer.append(mt)
 
-            # bulk-create in chunks
             if len(trainers_buffer) >= chunk:
                 MasterTrainer.objects.bulk_create(trainers_buffer)
-                self.stdout.write(f"Bulk inserted {len(trainers_buffer)} trainers (total so far {len(generated_mobiles)})")
+                created_count += len(trainers_buffer)
+                self.stdout.write(f"Bulk inserted {len(trainers_buffer)} trainers (total so far {created_count})")
                 trainers_buffer = []
 
-        # flush remainder
         if trainers_buffer:
             MasterTrainer.objects.bulk_create(trainers_buffer)
-            self.stdout.write(f"Final bulk inserted {len(trainers_buffer)} trainers (total {len(generated_mobiles)})")
+            created_count += len(trainers_buffer)
+            self.stdout.write(f"Final bulk inserted {len(trainers_buffer)} trainers (total {created_count})")
             trainers_buffer = []
 
-        # optionally create associated User accounts
+        # fetch the created trainers to get their PKs
+        trainers_qs = list(MasterTrainer.objects.filter(mobile_no__in=generated_mobiles).order_by('id'))
+        trainer_by_mobile = {t.mobile_no: t for t in trainers_qs}
+        self.stdout.write(f"Loaded {len(trainers_qs)} MasterTrainer objects from DB.")
+
+        # optionally create Users and attach to trainers
         if create_users:
             created_users = 0
-            for mobile in generated_mobiles:
-                username = mobile
-                if User.objects.filter(username=username).exists():
-                    continue
-                try:
-                    u = User.objects.create_user(username=username, password="password", email=f"{username}@example.com")
-                    # set role if custom user model supports it
-                    if hasattr(u, "role"):
-                        u.role = "master_trainer"
-                        u.save()
-                    created_users += 1
-                except Exception as e:
-                    self.stdout.write(f"Could not create user for {username}: {e}")
-            self.stdout.write(f"Created {created_users} user accounts (username=mobile_no, password='password').")
+            with transaction.atomic():
+                for mobile in generated_mobiles:
+                    trainer = trainer_by_mobile.get(mobile)
+                    if not trainer:
+                        continue
+                    username = mobile
+                    first_name_token = (trainer.full_name.split()[0] if trainer.full_name else "user")
+                    password = f"{first_name_token}@123"
+                    email = f"{username}@example.com"
+                    try:
+                        user = User.objects.filter(username=username).first()
+                        if user is None:
+                            user = User.objects.create_user(username=username, password=password, email=email)
+                        # set role if field exists
+                        if hasattr(user, "role"):
+                            user.role = "master_trainer"
+                            user.save(update_fields=["role"])
+                        # link user to trainer
+                        if trainer.user_id != user.id:
+                            trainer.user = user
+                            trainer.save(update_fields=["user"])
+                        created_users += 1
+                    except Exception as e:
+                        self.stdout.write(f"Warning: could not create/link user for mobile {mobile}: {e}")
+                        continue
+            self.stdout.write(f"Created/linked {created_users} user accounts (username=mobile_no, password=<first_name>@123).")
 
-        # Now fetch created trainers by mobile numbers (ensures we have PKs)
-        trainers_qs = list(MasterTrainer.objects.filter(mobile_no__in=generated_mobiles).order_by('id'))
-        self.stdout.write(f"Loaded {len(trainers_qs)} MasterTrainer objects from DB for certificate creation.")
-
-        # Build certificates
+        # create certificates: every certificate must link to one of existing TrainingPlan rows
         certs_buffer = []
         cert_count = 0
         for trainer in trainers_qs:
             num = random.randint(1, max_certs)
-            for j in range(num):
-                # generate certificate_number as readable 9-12 digit string
+            for _ in range(num):
                 cert_no = str(random.randint(10**8, 10**11))
-                title_samples = [
-                    "SRP ORIENTATION (TNCB)",
-                    "DRP ORIENTATION ON BOR (MCLF)",
-                    "VO EC MEMBER M2 TRAINING (SMCB)",
-                    "SHG MANAGEMENT TRAINING",
-                    "FINANCIAL LITERACY TO TRAINERS",
-                    "AGRICULTURE SUSTAINABILITY MODULE"
-                ]
-                training_module_id = random.choice(plan_ids) if plan_ids and random.random() < 0.6 else None
-                training_module = None
-                if training_module_id:
-                    try:
-                        training_module = TrainingPlan.objects.get(id=training_module_id)
-                    except TrainingPlan.DoesNotExist:
-                        training_module = None
-
-                issued_on = date.today() - timedelta(days=random.randint(10, 600))  # within last ~2 years
+                plan_id = random.choice(plan_ids)
+                training_module = TrainingPlan.objects.get(id=plan_id)
+                issued_on = date.today() - timedelta(days=random.randint(10, 600))
                 cert = MasterTrainerCertificate(
                     trainer=trainer,
                     certificate_number=cert_no,
                     training_module=training_module,
-                    certificate_file=None,   # leave blank as requested
+                    certificate_file=None,
                     issued_on=issued_on
                 )
                 certs_buffer.append(cert)
                 cert_count += 1
 
-                # flush certs in chunks
                 if len(certs_buffer) >= chunk:
                     MasterTrainerCertificate.objects.bulk_create(certs_buffer)
                     self.stdout.write(f"Bulk inserted {len(certs_buffer)} certificates (total so far {cert_count})")
                     certs_buffer = []
 
-        # flush remaining certificates
         if certs_buffer:
             MasterTrainerCertificate.objects.bulk_create(certs_buffer)
             self.stdout.write(f"Final bulk inserted {len(certs_buffer)} certificates (total {cert_count})")
             certs_buffer = []
 
-        self.stdout.write(self.style.SUCCESS(f"Done. Trainers created: {len(generated_mobiles)}; Certificates created: {cert_count}"))
+        self.stdout.write(self.style.SUCCESS(f"Done. Trainers created: {created_count}; Certificates created: {cert_count}"))
         return

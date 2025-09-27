@@ -108,7 +108,7 @@ class CustomUserChangeForm(forms.ModelForm):
 @admin.register(User)
 class UserAdmin(BlueprintAdminMixin, ImportExportModelAdmin, BaseUserAdmin):
     resource_class = UserResource
-    list_display = ('id', 'username', 'first_name', 'last_name', 'role', 'created_at')
+    list_display = ('id', 'username', 'role', 'created_at')
     search_fields = ('username', 'first_name', 'last_name', 'role')
     list_filter = ('role', 'created_at')
 
