@@ -179,8 +179,18 @@ class Beneficiary(models.Model):
 
     # Geographical Data
     state = models.CharField(max_length=150, blank=True, null=True, db_index=True)
-    district = models.CharField(max_length=150, blank=True, null=True, db_index=True)
-    block = models.CharField(max_length=150, blank=True, null=True)
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name='beneficiary_district',
+        null=True, blank=True,
+    )
+    block = models.ForeignKey(
+        Block,
+        on_delete=models.CASCADE,
+        related_name='beneficiary_block',
+        null=True, blank=True,
+    )    
     gram_panchayat = models.CharField(max_length=150, blank=True, null=True)
     village = models.CharField(max_length=150, blank=True, null=True)
 
@@ -218,7 +228,7 @@ class Beneficiary(models.Model):
 
     # Personal Data
     mobile_no = models.CharField("Mobile No.", max_length=20, blank=True, null=True, db_index=True)
-    aadhaar_no = models.CharField("Aadhaar No", max_length=20, blank=True, null=True, unique=True)
+    aadhaar_no = models.CharField("Aadhaar No", max_length=20, blank=True, null=True)
     aadhar_kyc = models.CharField("Aadhar KYC", max_length=200, blank=True, null=True)
     ekyc_status = models.CharField("ekyc status", max_length=20, blank=True, null=True)
 
@@ -229,12 +239,12 @@ class Beneficiary(models.Model):
     tertiary_livelihood = models.CharField("Tertiary Livelihood", max_length=200, blank=True, null=True)
 
     # Unique IDs Data
-    nrega_no = models.CharField("NREGA Job Card No", max_length=20, blank=True, null=True, unique=True)
-    pmay_id = models.CharField("PMAY-G ID", max_length=20, blank=True, null=True, unique=True)
-    secc_tin = models.CharField("SECC TIN", max_length=20, blank=True, null=True, unique=True)
-    nrlm_id = models.CharField("NRLM MIS ID", max_length=20, blank=True, null=True, unique=True)
-    state_id = models.CharField("STATE MIS ID", max_length=20, blank=True, null=True, unique=True)
-    ebk_id = models.CharField("eBK ID", max_length=20, blank=True, null=True, unique=True)
+    nrega_no = models.CharField("NREGA Job Card No", max_length=20, blank=True, null=True)
+    pmay_id = models.CharField("PMAY-G ID", max_length=20, blank=True, null=True)
+    secc_tin = models.CharField("SECC TIN", max_length=20, blank=True, null=True)
+    nrlm_id = models.CharField("NRLM MIS ID", max_length=20, blank=True, null=True)
+    state_id = models.CharField("STATE MIS ID", max_length=20, blank=True, null=True)
+    ebk_id = models.CharField("eBK ID", max_length=20, blank=True, null=True)
     ebk_name = models.CharField("eBK Name", max_length=100, blank=True, null=True)
     ebk_mobile_no = models.CharField("eBK Mobile No.", max_length=20, blank=True, null=True, db_index=True)
     approval_status = models.CharField(max_length=50, blank=True, null=True)
