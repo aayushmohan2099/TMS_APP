@@ -3,7 +3,7 @@ from import_export import resources, fields, widgets
 from import_export.widgets import ForeignKeyWidget, DateWidget, Widget, CharWidget
 from .models import (
     User, Beneficiary, TrainingPlan, MasterTrainer, MasterTrainerCertificate,
-    MasterTrainerExpertise, TrainingPartner, TrainingPartnerTargets, TrainingPartnerSubmission, Batch
+    MasterTrainerExpertise, TrainingPartner, TrainingPartnerTargets, TrainingPartnerSubmission, Batch, Block
 )
 from django.contrib.auth import get_user_model
 
@@ -77,6 +77,12 @@ class BeneficiaryResource(resources.ModelResource):
         import_id_fields = ('member_code',)
         exclude = ('id', 'created_at', 'updated_at',)
 
+class BlockResource(resources.ModelResource):
+    class Meta:
+        model = Block
+        skip_unchanged = True
+        report_skipped = True
+        import_id_fields = ('id')
 
 class TrainingPlanResource(resources.ModelResource):
     """

@@ -32,6 +32,8 @@ from .models import (
     # new models
     Mandal,
     DistrictCategory,
+    BmmuBlockAssignment,
+    DmmuDistrictAssignment,
 )
 
 # Resources (some were in your snippet; if missing add or remove as needed)
@@ -44,6 +46,7 @@ from .resources import (
     TrainingPartnerResource,
     TrainingPartnerSubmissionResource,
     TrainingPartnerTargetsResource,
+    BlockResource
 )
 
 from .utils import export_blueprint
@@ -422,7 +425,8 @@ class DistrictAdmin(admin.ModelAdmin):
 
 
 @admin.register(Block)
-class BlockAdmin(admin.ModelAdmin):
+class BlockAdmin(BlueprintAdminMixin, ImportExportModelAdmin):
+    resource_class = BlockResource
     list_display = ('block_id', 'block_name_en', 'block_code', 'district', 'district_name_en', 'state_id', 'rural_urban_area', 'is_aspirational')
     search_fields = ('block_name_en', 'block_code', 'district__district_name_en')
     list_filter = ('state_id', 'rural_urban_area', 'is_aspirational')
@@ -447,6 +451,15 @@ class VillageAdmin(admin.ModelAdmin):
     autocomplete_fields = ('panchayat',)
     ordering = ('panchayat', 'village_name_english')
 
+@admin.register(BmmuBlockAssignment)
+class BmmuBlockAssignmentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'block', 'assigned_at')
+    search_fields = ('user', 'block',)
+
+@admin.register(DmmuDistrictAssignment)
+class DmmuDistrictAssignment(admin.ModelAdmin):
+    list_display = ('id', 'user', 'district', 'assigned_at')
+    search_fields = ('user', 'district',)
 
 # If there are models/resources you haven't yet created in resources.py, remove resource_class for those admin classes
 # or create corresponding resources. The BlueprintAdminMixin requires resource_class to be present.

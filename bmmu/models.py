@@ -763,3 +763,49 @@ class TrainingPartnerBatch(models.Model):
 
     def __str__(self):
         return f"{self.partner.name} - {self.batch.code or self.batch.id} ({self.status})"
+
+# Which block has which BMMU?
+class BmmuBlockAssignment(models.Model):
+    id = models.AutoField(primary_key=True)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='bmmu_block_assignment'
+    )
+    block = models.ForeignKey(
+        Block,
+        on_delete=models.CASCADE,
+        related_name='bmmu_user_assignments'
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "BMMU Block Assignment"
+        verbose_name_plural = "BMMU Block Assignments"
+        unique_together = ('user', 'block')
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.block.block_name_en}"
+
+# Which district has which DMMU?
+class DmmuDistrictAssignment(models.Model):
+    id = models.AutoField(primary_key=True)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='dmmu_district_assignment'
+    )
+    district = models.ForeignKey(
+        District,
+        on_delete=models.CASCADE,
+        related_name='dmmu_user_assignments'
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "DMMU District Assignment"
+        verbose_name_plural = "DMMU District Assignments"
+        unique_together = ('user', 'district')
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.district.district_name_en}"

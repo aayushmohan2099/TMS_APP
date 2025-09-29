@@ -67,7 +67,7 @@ def custom_login(request):
         if user:
             logger.warning(f"Auth successful for {user.username}, role={getattr(user, 'role', None)}")
         else:
-            logger.warning("Auth failed!")
+            logger.warning(f"Authentication failed for {username}")
 
         # Basic checks
         if user is None:
@@ -146,9 +146,13 @@ def signup(request):
                         MasterTrainer.objects.create(user=user, full_name=user.get_full_name() or user.username)
 
                     # authenticate & login (so response can redirect to dashboard)
+                    logger.warning(f"Attempting to authenticate user: {username}")
                     user = authenticate(request, username=username, password=password)
                     if user:
+                        logger.warning(f"User {user.username} authenticated successfully.")
                         login(request, user)
+                    else:
+                        logger.warning(f"Authentication failed for {username}")
 
                     # determine redirect based on role
                     if role == 'training_partner':
