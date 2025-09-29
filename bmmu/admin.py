@@ -34,6 +34,7 @@ from .models import (
     DistrictCategory,
     BmmuBlockAssignment,
     DmmuDistrictAssignment,
+    SHG,
 )
 
 # Resources (some were in your snippet; if missing add or remove as needed)
@@ -460,6 +461,12 @@ class BmmuBlockAssignmentAdmin(admin.ModelAdmin):
 class DmmuDistrictAssignment(admin.ModelAdmin):
     list_display = ('id', 'user', 'district', 'assigned_at')
     search_fields = ('user', 'district',)
+
+
+@admin.register(SHG)
+class SHGAdmin(admin.ModelAdmin):
+    list_display = ('id', 'state', 'district', 'block', 'shg_code', 'shg_name', 'date_of_formation')
+    search_fields = ('shg_name', 'district',)
 
 # If there are models/resources you haven't yet created in resources.py, remove resource_class for those admin classes
 # or create corresponding resources. The BlueprintAdminMixin requires resource_class to be present.

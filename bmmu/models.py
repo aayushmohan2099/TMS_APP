@@ -819,3 +819,45 @@ class DmmuDistrictAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user.username} -> {self.district.district_name_en}"
+
+class SHG(models.Model):
+    id = models.AutoField(primary_key=True)
+
+    # Geographical Data
+    state = models.CharField(max_length=150, blank=True, null=True, db_index=True)
+    district = models.ForeignKey(
+        'District',
+        on_delete=models.SET_NULL,
+        related_name='shgs',  # shorter name
+        null=True, blank=True,
+    )
+    block = models.ForeignKey(
+        'Block',
+        on_delete=models.SET_NULL,
+        related_name='shgs',
+        null=True, blank=True,
+    )
+
+    # SHG Data
+    shg_code = models.CharField("SHG Code", max_length=100, blank=False, null=False, db_index=True, unique=True)
+    shg_name = models.CharField("SHG Name", max_length=200, blank=True, null=True)
+    date_of_formation = models.DateField(blank=True, null=True)
+
+    # optional metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "SHG"
+        verbose_name_plural = "SHGs"
+        ordering = ["shg_code"]
+        indexes = [
+            models.Index(fields=['shg_code']),
+            models.Index(fields=['state']),
+        ]
+        # If shg_code isn't globally unique in your data, comment the unique=True above
+        # and use:
+        # unique_together = ('shg_code', 'block')
+
+    def __str__(self):
+        return f"{self.shg_name or self.shg_code} ({self.shg_code})"
