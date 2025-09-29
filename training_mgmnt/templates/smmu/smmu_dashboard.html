@@ -1,70 +1,266 @@
 {% load static %}
-<div class="container-fluid">
-  <h3 class="mb-3">SMMU Dashboard</h3>
+{% load custom_tags %}
 
-  <div class="row mb-4">
-    <div class="col-md-6" style="height:280px;">
-      <canvas id="chart1"></canvas>
-    </div>
-    <div class="col-md-6" style="height:280px;">
-      <canvas id="chart2"></canvas>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SMMU Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .card-body { background: #fff; }
+    /* reuse same beneficiary table styling as bmmu (sticky header) */
+    .table-responsive.custom-scroll { overflow-x: auto; max-height: 60vh; }
+    #s_beneficiariesTable thead th {
+      position: sticky; top: 0; z-index: 7; background: #212529; color: white; font-weight:700; font-size:14px; padding:.6rem .75rem;
+    }
+    .col-header { font-weight: 700; font-size: .95rem; color: #fff; display:block; margin-bottom:.25rem;}
+    .filter-btn { padding: .25rem .5rem; font-size: .85rem; }
+    .dropdown-checkboxes { max-height: 260px; overflow:auto; padding: .25rem; }
+    .dropdown-menu.moved-to-body { box-shadow: 0 6px 18px rgba(0,0,0,0.15); max-height:360px; overflow:auto; z-index:3000!important; }
+
+    /* Dashboard grid & analytics */
+    .dashboard-grid { display:grid; grid-template-columns:1fr; gap:16px; align-items:start; }
+    .dashboard-grid.analytics-open { grid-template-columns:2fr 1fr; }
+    .analytics-panel { background:#fbfdff; border:1px solid #e6f0ff; border-radius:6px; padding:12px; display:none; min-height:60vh; }
+    .analytics-panel.visible { display:block; }
+    table.s-table-compressed td, table.s-table-compressed th { padding:.35rem .5rem; font-size:.88rem; }
+    @media (max-width:768px) { .dashboard-grid.analytics-open { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+
+<div class="container-fluid">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0">SMMU Dashboard</h3>
+    <div>
+      <button id="s_toggleAnalyticsTop" class="btn btn-sm btn-outline-primary" aria-expanded="false" aria-controls="s_analyticsPanel">Show analytics</button>
     </div>
   </div>
 
-  <h4 class="mb-3">Trainings for your themes</h4>
-  <div class="card mb-3">
-    <div class="card-body">
-      <p class="text-muted small">Showing trainings for themes you are expert for: {% if themes %} {{ themes|join:", " }} {% else %} (no assigned themes) {% endif %}</p>
+  <div id="sDashboardGrid" class="dashboard-grid">
 
-      <div class="table-responsive">
-        <table class="table table-sm table-bordered">
+    <!-- Left: Beneficiary list (same structure as BMMU) -->
+    <div>
+      <h4 class="mb-3">Beneficiaries</h4>
+
+      <div class="table-responsive custom-scroll mt-3">
+        <table class="table table-bordered table-hover table-sm" id="s_beneficiariesTable" style="min-width:1400px;">
           <thead class="table-dark">
             <tr>
-              <th>Batch</th><th>Training</th><th>Theme</th><th>Partner</th><th>Start</th><th>End</th><th>Trainers</th><th>Participants</th><th>Status</th><th>Action</th>
+              <th style="width:60px; white-space:nowrap;">
+                <div class="form-check"><input class="form-check-input" type="checkbox" id="s_selectAllRows"></div>
+              </th>
+
+              {% for item in field_list %}
+                {% with field_name=item.0 verbose_name=item.1 %}
+                  {% if field_name != 'id' %}
+                    <th style="min-width:160px; white-space:nowrap;" data-field="{{ field_name }}">
+                      <span class="col-header">{{ verbose_name|title }}</span>
+                      <div class="d-flex">
+                        {% if groupable_values and groupable_values|get_item:field_name %}
+                          <div class="dropdown w-100">
+                            <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="s_dd_main_{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false" data-field="{{ field_name }}">Filter</button>
+                            <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                              <div class="dropdown-checkboxes">
+                                {% with groupable_values|get_item:field_name as vals %}
+                                  {% for val in vals %}
+                                    {% if val %}
+                                      <div class="form-check">
+                                        <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="{{ field_name }}" value="{{ val }}" id="s_chk_{{ field_name }}_{{ forloop.counter }}">
+                                        <label class="form-check-label" for="s_chk_{{ field_name }}_{{ forloop.counter }}">{{ val }}</label>
+                                      </div>
+                                    {% endif %}
+                                  {% endfor %}
+                                {% endwith %}
+                              </div>
+                              <div class="d-flex justify-content-between mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="{{ field_name }}">Clear</button>
+                                <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="{{ field_name }}">Apply</button>
+                              </div>
+                            </div>
+                          </div>
+                        {% else %}
+                          <div class="text-muted small">—</div>
+                        {% endif %}
+                      </div>
+                    </th>
+                  {% endif %}
+                {% endwith %}
+              {% endfor %}
             </tr>
           </thead>
           <tbody>
-            {% for b in batches %}
+            {% for obj in page_obj %}
               <tr>
-                <td>{{ b.code }}</td>
-                <td>{{ b.module }}</td>
-                <td>{{ b.theme }}</td>
-                <td>{{ b.partner|default:"—" }}</td>
-                <td>{{ b.start|default:"—" }}</td>
-                <td>{{ b.end|default:"—" }}</td>
-                <td>{{ b.trainers_count }}</td>
-                <td>{{ b.participants_count }}</td>
-                <td>{{ b.status }}</td>
-                <td><a class="btn btn-sm btn-primary" href="{% url 'smmu_request_detail' b.id %}">Open</a></td>
+                <td><div class="form-check"><input class="form-check-input s_row_select_checkbox" type="checkbox" data-id="{{ obj.id }}"></div></td>
+                {% for item in field_list %}
+                  {% with field_name=item.0 verbose_name=item.1 %}
+                    {% if field_name != 'id' %}
+                      <td style="white-space:normal;">{{ obj|attr:field_name }}</td>
+                    {% endif %}
+                  {% endwith %}
+                {% endfor %}
               </tr>
             {% empty %}
-              <tr><td colspan="10">No trainings found for your themes.</td></tr>
+              <tr><td colspan="{{ field_list|length|add:'0' }}" class="text-center">No beneficiaries found.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+
+      <!-- Pagination (reuse same pattern) -->
+      <nav aria-label="Page navigation" class="mt-2">
+        <ul class="pagination justify-content-center">
+          {% if page_obj.has_previous %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+          {% endif %}
+
+          {% for num in paginator.page_range %}
+            {% if page_obj.number == num %}
+              <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+            {% elif num > page_obj.number|add:'-5' and num < page_obj.number|add:'5' %}
+              <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+            {% endif %}
+          {% endfor %}
+
+          {% if page_obj.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Next</span></li>
+          {% endif %}
+        </ul>
+      </nav>
+
     </div>
+
+    <!-- Right: Analytics -->
+    <aside id="s_analyticsPanel" class="analytics-panel" role="complementary" aria-hidden="true">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Analytics</strong>
+        <button id="s_hideAnalyticsBtn" class="btn btn-sm btn-outline-secondary">Hide</button>
+      </div>
+
+      <p class="text-muted small">SMMU quick stats</p>
+      <div style="height:280px;"><canvas id="s_chart1"></canvas></div>
+      <div style="height:280px; margin-top:12px;"><canvas id="s_chart2"></canvas></div>
+    </aside>
+
   </div>
+
 </div>
 
-<!-- Chart JS init -->
+<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
-(function(){
+/* Common helpers for SMMU fragment */
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i=0;i<cookies.length;i++){
+      const c = cookies[i].trim();
+      if (c.substring(0, name.length+1) === (name + '=')) {
+        cookieValue = decodeURIComponent(c.substring(name.length+1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+const CSRF_TOKEN = getCookie('csrftoken');
+
+let _s_chart1 = null, _s_chart2 = null;
+function initSCharts() {
   try {
+    if (_s_chart1 && _s_chart1.destroy) { try{ _s_chart1.destroy(); }catch(e){} }
+    if (_s_chart2 && _s_chart2.destroy) { try{ _s_chart2.destroy(); }catch(e){} }
+
     const labels = {{ chart_labels_json|safe }};
     const data1 = {{ chart1_json|safe }};
     const data2 = {{ chart2_json|safe }};
-    const c1 = document.getElementById('chart1');
+
+    const c1 = document.getElementById('s_chart1');
     if (c1) {
       const ctx1 = c1.getContext('2d');
-      new Chart(ctx1, { type:'bar', data:{ labels: labels, datasets:[{ label:'Metric 1', data: data1 }] }, options:{ responsive:true, maintainAspectRatio:false }});
+      _s_chart1 = new Chart(ctx1, { type:'bar', data:{ labels: labels, datasets:[{ label:'Metric 1', data: data1 }] }, options:{ responsive:true, maintainAspectRatio:false }});
     }
-    const c2 = document.getElementById('chart2');
+    const c2 = document.getElementById('s_chart2');
     if (c2) {
       const ctx2 = c2.getContext('2d');
-      new Chart(ctx2, { type:'line', data:{ labels: labels, datasets:[{ label:'Metric 2', data: data2, fill:false }] }, options:{ responsive:true, maintainAspectRatio:false }});
+      _s_chart2 = new Chart(ctx2, { type:'line', data:{ labels: labels, datasets:[{ label:'Metric 2', data: data2, fill:false }] }, options:{ responsive:true, maintainAspectRatio:false }});
     }
-  } catch(e) { console.warn('smmu dashboard chart init', e); }
+  } catch(e) { console.warn('initSCharts error', e); }
+}
+
+/* Basic wiring for filters & dropdown move - we reuse the same handler names as BMMU where possible */
+function attachSHeaderSorting() {
+  document.querySelectorAll('#s_beneficiariesTable thead th[data-field]').forEach(th => {
+    const field = th.dataset.field;
+    if (!field) return;
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function(e){
+      if (e.target.closest('.dropdown') || e.target.closest('.dropdown-menu') || e.target.classList.contains('main-col-filter-checkbox')) return;
+      const params = new URLSearchParams(window.location.search || '');
+      let newOrder = 'asc';
+      // basic toggle behavior not carrying full state to keep inline with fragment approach
+      params.set('sort_by', field);
+      params.set('order', newOrder);
+      params.set('page', 1);
+      window.location.search = params.toString();
+    });
+  });
+}
+
+function initSRowSelectionHandlers() {
+  const selectAll = document.getElementById('s_selectAllRows');
+  if (selectAll) {
+    selectAll.addEventListener('change', function(){
+      const checked = !!this.checked;
+      document.querySelectorAll('.s_row_select_checkbox').forEach(cb => cb.checked = checked);
+    });
+  }
+}
+
+/* Wire initial UI handlers */
+document.addEventListener('DOMContentLoaded', function(){
+  try { attachSHeaderSorting(); } catch(e) {}
+  try { initSRowSelectionHandlers(); } catch(e) {}
+});
+
+/* Analytics toggle (SMMU) */
+(function(){
+  const grid = document.getElementById('sDashboardGrid');
+  const panel = document.getElementById('s_analyticsPanel');
+  const toggleBtn = document.getElementById('s_toggleAnalyticsTop');
+  const hideBtn = document.getElementById('s_hideAnalyticsBtn');
+  const table = document.getElementById('s_beneficiariesTable');
+
+  let open = false;
+  function openA(){
+    open = true; grid.classList.add('analytics-open'); panel.classList.add('visible'); panel.setAttribute('aria-hidden','false');
+    toggleBtn.setAttribute('aria-expanded','true'); toggleBtn.textContent='Hide analytics';
+    if (table) table.classList.add('s-table-compressed');
+    try { initSCharts(); } catch(e) { console.warn('s charts', e); }
+  }
+  function closeA(){
+    open = false; grid.classList.remove('analytics-open'); panel.classList.remove('visible'); panel.setAttribute('aria-hidden','true');
+    toggleBtn.setAttribute('aria-expanded','false'); toggleBtn.textContent='Show analytics';
+    if (table) table.classList.remove('s-table-compressed');
+  }
+
+  toggleBtn.addEventListener('click', ()=> open? closeA() : openA());
+  hideBtn.addEventListener('click', closeA);
+  closeA();
+
+  (function(){ const urlParams = new URLSearchParams(window.location.search); if (urlParams.get('analytics') === '1') openA(); })();
+
 })();
 </script>
+
+</body>
+</html>
