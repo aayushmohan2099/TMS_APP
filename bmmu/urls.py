@@ -25,6 +25,8 @@ urlpatterns = [
     # Delete beneficiaries (fragment + POST to delete)
     path("bmmu/delete/", views.bmmu_delete_beneficiaries, name="bmmu_delete_beneficiaries"),
 
+    path('beneficiary/<int:pk>/', views.bmmu_beneficiary_detail, name='bmmu_beneficiary_detail'),
+
     # Training Program Management Portal (Batch Creator)
     path('tms/create_batch/', views.tms_create_batch, name='tms_create_batch'),
 
@@ -57,6 +59,7 @@ urlpatterns = [
     path('smmu/dashboard/', views.smmu_dashboard, name='smmu_dashboard'),
     path('smmu/requests/', views.smmu_training_requests, name='smmu_training_requests'),
     path('smmu/request/<int:batch_id>/', views.smmu_request_detail, name='smmu_request_detail'),
+    path('api/districts/', views.api_districts_for_mandal, name='api_districts_for_mandal'),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

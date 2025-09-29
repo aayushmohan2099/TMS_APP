@@ -82,6 +82,10 @@
     font-size: .88rem;
   }
 
+  /* clickable row visuals */
+  #beneficiariesTable tbody tr.clickable-row { cursor: pointer; }
+  #beneficiariesTable tbody tr.clickable-row td { user-select: none; }
+
   @media (max-width: 768px) {
     .dashboard-grid.analytics-open { grid-template-columns: 1fr; }
     .analytics-panel { order: 2; }
@@ -405,7 +409,7 @@
           </thead>
           <tbody>
             {% for obj in page_obj %}
-              <tr>
+              <tr class="clickable-row" data-pk="{{ obj.pk }}">
                 <td>
                   <div class="form-check">
                     <input class="form-check-input row-select-checkbox" type="checkbox" data-id="{{ obj.id }}" title="Select row">
@@ -493,6 +497,24 @@
         </div>
       </div>
 
+      <!-- Beneficiary detail modal (new) -->
+      <div class="modal fade" id="beneficiaryDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 id="beneficiaryDetailModalLabel" class="modal-title">Beneficiary details</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div id="beneficiaryDetailModalBody" class="modal-body">
+              <div class="text-center text-muted">Loading...</div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div> <!-- end left column -->
 
     <!-- Right: Analytics panel (hidden initially) -->
@@ -529,6 +551,9 @@ const FRAGMENT_URL = "{% url 'load_app_content' app_name='bmmu' %}";
 const LOAD_ADD_URL = "{% url 'load_app_content' app_name='bmmu_add' %}";
 const ADD_POST_URL = "{% url 'bmmu_add_beneficiary' %}";
 const DELETE_POST_URL = "{% url 'bmmu_delete_beneficiaries' %}";
+
+// detail URL template uses Django reverse with a dummy pk (0), we will replace the '0' with actual pk
+const DETAIL_URL_TEMPLATE = "{% url 'bmmu_beneficiary_detail' 0 %}";
 
 function getCookie(name) {
   let cookieValue = null;
@@ -841,6 +866,73 @@ function wireActionsForTable() {
   });
 }
 
+/* ---------- Beneficiary detail modal helpers (new) ---------- */
+
+function renderDetailHtml(data) {
+  // Build two-column responsive layout of key/value pairs
+  let html = '<div class="container-fluid"><div class="row">';
+  for (const [k, v] of Object.entries(data)) {
+    const label = k.replace(/_/g, ' ');
+    const value = (v === null || v === undefined) ? '' : String(v);
+    html += `
+      <div class="col-12 col-md-6 mb-2">
+        <dl class="row mb-0">
+          <dt class="col-5 text-muted" style="font-weight:600;">${label}</dt>
+          <dd class="col-7 mb-0">${value}</dd>
+        </dl>
+      </div>
+    `;
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function attachRowClickHandlers() {
+  document.querySelectorAll('#beneficiariesTable tbody tr[data-pk]').forEach(tr => {
+    if (tr._detailListener) return; // avoid double-bind
+    tr.addEventListener('click', function (e) {
+      // don't open modal when clicking on inputs/links/buttons inside row
+      if (e.target.closest('input,button,a,select')) return;
+      const pk = this.dataset.pk;
+      if (!pk) return;
+
+      // construct URL from template. Replace '/0/' segment with '/<pk>/'.
+      let url = DETAIL_URL_TEMPLATE;
+      if (url.indexOf('/0/') !== -1) {
+        url = url.replace('/0/', `/${pk}/`);
+      } else if (url.endsWith('0/')) {
+        url = url.replace(/0\/$/, `${pk}/`);
+      } else {
+        // fallback: append pk
+        url = url.replace(/0$/, pk);
+      }
+
+      const bodyEl = document.getElementById('beneficiaryDetailModalBody');
+      if (bodyEl) bodyEl.innerHTML = '<div class="text-center text-muted">Loading...</div>';
+
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(resp => {
+          if (!resp.ok) throw new Error('Failed to fetch beneficiary details');
+          return resp.json();
+        })
+        .then(json => {
+          if (!json || !json.ok || !json.data) throw new Error('Invalid response');
+          const body = document.getElementById('beneficiaryDetailModalBody');
+          if (body) body.innerHTML = renderDetailHtml(json.data);
+          const modalEl = new bootstrap.Modal(document.getElementById('beneficiaryDetailModal'));
+          modalEl.show();
+        })
+        .catch(err => {
+          console.error('Error loading beneficiary details', err);
+          const body = document.getElementById('beneficiaryDetailModalBody');
+          if (body) body.innerHTML = '<div class="alert alert-danger">Unable to load beneficiary details.</div>';
+        });
+    });
+    tr._detailListener = true;
+  });
+}
+
+/* ---------- fragmentInit: wire everything ---------- */
 function fragmentInit() {
   try { initCharts(); } catch(e) { /* charts may not be visible; safe to ignore */ }
   try { attachToolbarHandlers(); } catch(e) { console.warn('toolbar handlers error', e); }
@@ -849,6 +941,7 @@ function fragmentInit() {
   try { wireHeaderSorting(); } catch(e) { console.warn('wireHeaderSorting', e); }
   try { initRowSelectionHandlers(); } catch(e) { console.warn('row selection init', e); }
   try { wireActionsForTable(); } catch(e) { console.warn('actions wiring', e); }
+  try { attachRowClickHandlers(); } catch(e) { console.warn('attachRowClickHandlers', e); }
 
   // Compute Age column values client-side from data-dob (YYYY-MM-DD). Leaves DOB cell unchanged if blank.
   try {

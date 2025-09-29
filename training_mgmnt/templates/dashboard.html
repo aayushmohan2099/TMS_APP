@@ -45,8 +45,21 @@
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg">
         <div class="container-fluid">
-            <!-- Dashboard link -->
-            <span class="navbar-brand" onclick="window.location.href='{% url 'dashboard' %}'">{{ user.role|upper }} Dashboard</span>
+            <!-- Dashboard link: route according to user.role (safe, minimal change) -->
+            {% if user.is_authenticated %}
+              {% with role_lower=user.role|default:""|lower %}
+                {% if role_lower == "smmu" %}
+                  <a class="navbar-brand" href="{% url 'smmu_dashboard' %}">{{ user.role|upper }} Dashboard</a>
+                {% elif role_lower == "bmmu" %}
+                  <a class="navbar-brand" href="{% url 'bmmu_dashboard' %}">{{ user.role|upper }} Dashboard</a>
+                {% else %}
+                  <a class="navbar-brand" href="{% url 'dashboard' %}">{{ user.role|upper }} Dashboard</a>
+                {% endif %}
+              {% endwith %}
+            {% else %}
+              <span class="navbar-brand">Dashboard</span>
+            {% endif %}
+
             <div class="ms-auto d-flex align-items-center">
                 <span class="me-3 fw-bold">👤 {{ user.username }} ({{ user.role|upper }})</span>
                 <a href="{% url 'custom_logout' %}" class="nav-link d-inline">Logout</a>

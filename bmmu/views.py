@@ -30,6 +30,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils import timezone
+from django.db.models import Prefetch
 
 logger = logging.getLogger(__name__)
 
@@ -679,6 +680,56 @@ def _bmmu_fragment_context(request, paginate=True):
         "groupable_values_json": groupable_values_json,
     }
 
+def bmmu_beneficiary_detail(request, pk):
+    """
+    Return JSON with all fields for beneficiary `pk`.
+
+    - Only authenticated users may access.
+    - If user.role == 'bmmu', ensure the beneficiary's block is assigned to that BMMU.
+    """
+    from datetime import date, datetime
+    from django.http import Http404
+    if not request.user.is_authenticated:
+        return HttpResponseForbidden("Authentication required")
+
+    try:
+        beneficiary = Beneficiary.objects.select_related('district', 'block').get(pk=pk)
+    except Beneficiary.DoesNotExist:
+        raise Http404("Beneficiary not found")
+
+    # If role is bmmu, ensure this beneficiary is in one of their assigned blocks
+    user_role = getattr(request.user, "role", "").lower()
+    if user_role == "bmmu":
+        assigned_block_ids = list(
+            BmmuBlockAssignment.objects.filter(user=request.user)
+            .values_list("block_id", flat=True)
+        )
+        if not assigned_block_ids or (beneficiary.block_id not in assigned_block_ids):
+            return HttpResponseForbidden("Not allowed")
+
+    # Build a JSON-safe dict of fields (convert dates / complex objects to strings)
+    data = {}
+    for f in Beneficiary._meta.fields:
+        name = f.name
+        try:
+            val = getattr(beneficiary, name)
+        except Exception:
+            val = None
+
+        if val is None:
+            data[name] = None
+        elif isinstance(val, (date, datetime)):
+            data[name] = val.isoformat()
+        elif isinstance(val, (int, float, bool, str)):
+            data[name] = val
+        else:
+            # related objects or other complex types -> stringify
+            try:
+                data[name] = str(val)
+            except Exception:
+                data[name] = None
+
+    return JsonResponse({"ok": True, "data": data})
 
 @login_required
 def bmmu_dashboard(request):
@@ -1538,109 +1589,337 @@ def nominate_batch(request):
 @login_required
 def smmu_dashboard(request):
     """
-    SMMU dashboard for a theme-expert user.
-    Shows charts (same as BMMU) and a list of batches for themes this SMMU user is expert for.
-    If request is AJAX (fragment) return the fragment HTML; otherwise redirect to wrapper dashboard.
+    SMMU dashboard:
+     - Presents Mandal -> DistrictCategory -> District selectors
+     - Displays beneficiaries for selected district (table hidden until a district is chosen)
+     - Provides filter lists and pagination
+     - Returns fragment HTML for AJAX or full wrapper for non-AJAX (keeps behaviour unchanged)
     """
-    if getattr(request.user, "role", "").lower() != 'smmu':
+    if getattr(request.user, "role", "").lower() != "smmu":
         return HttpResponseForbidden("🚫 Not authorized for this dashboard.")
 
-    # Build same charts as _bmmu_fragment_context (reuse if you like)
+    # Charts (kept same as before)
     chart1 = [random.randint(0, 100) for _ in range(10)]
     chart2 = [random.randint(0, 100) for _ in range(10)]
-    chart_labels = [f'Metric {i+1}' for i in range(10)]
+    chart_labels = [f"Metric {i+1}" for i in range(10)]
 
-    # Determine themes this user is expert for (use TrainingPlan.theme_expert FK)
-    themes = list(TrainingPlan.objects.filter(theme_expert=request.user).values_list('theme', flat=True).distinct())
-    themes = [t for t in themes if t]
+    # Selectors values
+    mandals = list(Mandal.objects.all().order_by("name"))
+    mandal_id = request.GET.get("mandal_id")  # optional
 
-    # If user has no explicit theme_expert assignments, optionally attempt to infer from training_plans
-    # (this is safe fallback — no destructive actions)
-    if not themes:
-        # try to find themes where user.full_name appears in theme_expert contact or similar (safe fallback)
-        # (commented out by default)
-        # themes = list(TrainingPlan.objects.filter(theme_expert_contact__icontains=request.user.username).values_list('theme', flat=True).distinct())
-        themes = []
+    # district category selection is tied to District objects
+    selected_mandal = None
+    if mandal_id:
+        try:
+            selected_mandal = Mandal.objects.get(pk=int(mandal_id))
+        except Exception:
+            selected_mandal = None
 
-    # If no themes found, return an empty list (SMMU may later be assigned)
-    batches = []
-    try:
-        # statuses to show in SMMU dashboard (pending / proposed / ongoing)
-        available_statuses = [c[0] for c in Batch._meta.get_field('status').choices]
-        interesting = [s for s in ('PENDING', 'ONGOING', 'PENDING_APPROVAL', 'PROPOSED', 'NOMINATED') if s in available_statuses]
-        if interesting:
-            batch_qs = Batch.objects.filter(status__in=interesting)
-        else:
-            batch_qs = Batch.objects.all().order_by('-created_at')
+    # District list (optionally filtered by mandal)
+    districts_qs = District.objects.all().order_by("district_name_en")
+    if selected_mandal:
+        districts_qs = districts_qs.filter(mandal=selected_mandal)
+    districts = list(districts_qs)
 
-        # if themes list present, filter by training_plan.theme
-        if themes:
-            batch_qs = batch_qs.filter(training_plan__theme__in=themes)
+    category_id = request.GET.get("category_id")
+    # district category options — if a mandal is selected we can still show categories across districts in that mandal
+    district_categories_qs = DistrictCategory.objects.all().order_by("category_name")
+    if selected_mandal:
+        # categories attached to districts in this mandal
+        district_ids_for_mandal = districts_qs.values_list("district_id", flat=True)
+        district_categories_qs = district_categories_qs.filter(district__district_id__in=district_ids_for_mandal)
+    district_categories = list(district_categories_qs.distinct())
 
-        batch_qs = batch_qs.select_related('training_plan', 'partner')[:300]
+    # selected district (this triggers table display)
+    selected_district_id = request.GET.get("district_id")
+    selected_district = None
+    if selected_district_id:
+        try:
+            # District model uses district_id as primary key in your models
+            selected_district = District.objects.get(district_id=int(selected_district_id))
+        except Exception:
+            selected_district = None
 
-        for b in batch_qs:
-            tp = getattr(b, 'training_plan', None)
-            batches.append({
-                'id': b.id,
-                'code': b.code or f'Batch-{b.id}',
-                'theme': getattr(tp, 'theme', '') if tp else '',
-                'module': getattr(tp, 'training_name', '') if tp else '',
-                'start': b.start_date.isoformat() if b.start_date else None,
-                'end': b.end_date.isoformat() if b.end_date else None,
-                'days': getattr(tp, 'no_of_days', None) if tp else None,
-                'trainers_count': b.trainers.count() if hasattr(b, 'trainers') else 0,
-                'participants_count': b.beneficiaries.count() if hasattr(b, 'beneficiaries') else 0,
-                'partner': b.partner.name if getattr(b, 'partner', None) else None,
-                'status': b.status
-            })
-    except Exception as e:
-        logger.exception("smmu_dashboard: failed to load batches: %s", e)
+    # Build beneficiaries queryset: only when a district is selected we show results
+    beneficiaries_qs = Beneficiary.objects.none()
+    show_table = False
+    if selected_district:
+        show_table = True
+        beneficiaries_qs = Beneficiary.objects.filter(district=selected_district).select_related("district", "block")
 
-    context = {
-        'chart1': chart1,
-        'chart2': chart2,
-        'chart_labels': chart_labels,
-        'chart1_json': json.dumps(chart1),
-        'chart2_json': json.dumps(chart2),
-        'chart_labels_json': json.dumps(chart_labels),
-        'batches': batches,
-        'themes': themes,
+    # Apply search / filter / sort behaviour
+    # For safety and to avoid touching the global _apply_search_filter_sort function, apply minimal logic:
+    # - search on block, shg_name, gram_panchayat, village (icontains)
+    # - filters passed as filter_<field>=comma_separated_values for fields in ALLOWED_FILTERS
+    from django.db.models import Q
+
+    # Global search
+    q = request.GET.get("search", "").strip()
+    if q and show_table:
+        qobj = Q()
+        qobj |= Q(block__block_name_en__icontains=q)  # block foreign key string
+        qobj |= Q(shg_name__icontains=q)
+        qobj |= Q(gram_panchayat__icontains=q)
+        qobj |= Q(village__icontains=q)
+        beneficiaries_qs = beneficiaries_qs.filter(qobj)
+
+    # Filters allowed (these names are model fields or block FK)
+    ALLOWED_FILTERS = {
+        "block", "gram_panchayat", "village", "shg_name",
+        "social_category", "designation_in_shg_vo_clf", "gender"
     }
 
-    # If AJAX: render fragment; else redirect to wrapper (keeps layout same)
-    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-        html = render_to_string('smmu/smmu_dashboard.html', context, request=request)
+    for key, val in request.GET.items():
+        if not key.startswith("filter_") or not val:
+            continue
+        fld = key.replace("filter_", "")
+        if fld not in ALLOWED_FILTERS:
+            continue
+        vals = [v.strip() for v in val.split(",") if v.strip()]
+        if not vals:
+            continue
+        if fld == "block":
+            # blocks come from Block.block_name_en; match by name
+            beneficiaries_qs = beneficiaries_qs.filter(block__block_name_en__in=vals)
+        else:
+            # plain fields on Beneficiary
+            beneficiaries_qs = beneficiaries_qs.filter(**{f"{fld}__in": vals})
+
+    # Sorting
+    sort_by = request.GET.get("sort_by", "")
+    order = request.GET.get("order", "asc")
+    allowed_sort_fields = {
+        "block", "gram_panchayat", "village", "shg_name", "member_name",
+        "social_category", "designation_in_shg_vo_clf", "gender", "date_of_birth"
+    }
+    if sort_by in allowed_sort_fields:
+        sort_field = sort_by
+        # for block sorting, use block__block_name_en
+        if sort_by == "block":
+            sort_field = "block__block_name_en"
+        if order == "desc":
+            beneficiaries_qs = beneficiaries_qs.order_by(f"-{sort_field}")
+        else:
+            beneficiaries_qs = beneficiaries_qs.order_by(sort_field)
+    else:
+        beneficiaries_qs = beneficiaries_qs.order_by("id")
+
+    # Pagination
+    paginator = None
+    page_obj = []
+    if show_table:
+        paginator = Paginator(beneficiaries_qs, 20)
+        page_number = request.GET.get("page", 1)
+        page_obj = paginator.get_page(page_number)
+    else:
+        paginator = None
+        page_obj = []
+
+    # Build groupable_values (for filters) limited to this district (if show_table) or empty lists otherwise
+    groupable_values = {}
+    # Blocks: use Block model for block names in the selected district
+    if selected_district:
+        blocks_for_district = list(Block.objects.filter(district=selected_district).order_by("block_name_en").values_list("block_name_en", flat=True).distinct())
+        # mark aspirational blocks (we will flag in template)
+        aspirational_blocks = set(Block.objects.filter(district=selected_district, is_aspirational=True).values_list("block_name_en", flat=True))
+    else:
+        blocks_for_district = []
+        aspirational_blocks = set()
+
+    # other groupable values from beneficiaries (distinct)
+    if selected_district:
+        gp_vals = list(beneficiaries_qs.order_by("gram_panchayat").values_list("gram_panchayat", flat=True).distinct())
+        village_vals = list(beneficiaries_qs.order_by("village").values_list("village", flat=True).distinct())
+        shg_vals = list(beneficiaries_qs.order_by("shg_name").values_list("shg_name", flat=True).distinct())
+        social_vals = list(beneficiaries_qs.order_by("social_category").values_list("social_category", flat=True).distinct())
+        desig_vals = list(beneficiaries_qs.order_by("designation_in_shg_vo_clf").values_list("designation_in_shg_vo_clf", flat=True).distinct())
+        gender_vals = list(beneficiaries_qs.order_by("gender").values_list("gender", flat=True).distinct())
+    else:
+        gp_vals = village_vals = shg_vals = social_vals = desig_vals = gender_vals = []
+
+    # normalize values lists (remove None/empty)
+    def _clean(vals):
+        return [v for v in vals if v is not None and str(v).strip() != ""]
+
+    groupable_values["block"] = _clean(blocks_for_district)
+    groupable_values["gram_panchayat"] = _clean(gp_vals)
+    groupable_values["village"] = _clean(village_vals)
+    groupable_values["shg_name"] = _clean(shg_vals)
+    groupable_values["social_category"] = _clean(social_vals)
+    groupable_values["designation_in_shg_vo_clf"] = _clean(desig_vals)
+    groupable_values["gender"] = _clean(gender_vals)
+
+    # Context for template
+    context = {
+        "chart1": chart1,
+        "chart2": chart2,
+        "chart_labels": chart_labels,
+        "chart1_json": json.dumps(chart1),
+        "chart2_json": json.dumps(chart2),
+        "chart_labels_json": json.dumps(chart_labels),
+        "mandals": mandals,
+        "districts": districts,
+        "district_categories": district_categories,
+        "selected_mandal": getattr(selected_mandal, "id", None) if selected_mandal else None,
+        "selected_category": int(category_id) if category_id and category_id.isdigit() else None,
+        "selected_district": getattr(selected_district, "district_id", None) if selected_district else None,
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "show_table": show_table,
+        "groupable_values": groupable_values,
+        "groupable_values_json": json.dumps(groupable_values, default=str),
+        "aspirational_blocks": list(aspirational_blocks),
+        "search_query": request.GET.get("search", ""),
+        "sort_by": sort_by,
+        "order": order,
+    }
+
+    # If AJAX: return fragment HTML as before
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        html = render_to_string("smmu/smmu_dashboard.html", context, request=request)
         return HttpResponse(html)
 
-    # For non-AJAX just render wrapper dashboard but set default_content fragment (so nav etc stays same)
-    default_content = render_to_string('smmu/smmu_dashboard.html', context, request=request)
-    return render(request, 'dashboard.html', {'user': request.user, 'default_content': default_content})
+    # Non-AJAX: embed fragment inside wrapper (existing behaviour)
+    default_content = render_to_string("smmu/smmu_dashboard.html", context, request=request)
+    return render(request, "dashboard.html", {"user": request.user, "default_content": default_content})
+
+def smmu_fragment_context(request, paginate=True):
+    """
+    Build context for SMMU fragment.
+     - mandals
+     - district_categories
+     - beneficiaries for chosen district (only if district provided)
+     - training plans where current user is theme_expert, along with their batches
+    """
+    # 1. Mandals and district categories for the selects
+    mandals = list(Mandal.objects.all().order_by('name').values('id', 'name'))
+    district_categories = list(DistrictCategory.objects.all().order_by('name').values('id', 'name'))
+
+    # 2. If district provided, prepare beneficiaries queryset; otherwise empty
+    district_id = request.GET.get('district_id') or request.GET.get('district')
+    beneficiaries_qs = Beneficiary.objects.none()
+    if district_id:
+        try:
+            did = int(district_id)
+            beneficiaries_qs = Beneficiary.objects.filter(district_id=did).select_related('district', 'block')
+        except Exception:
+            beneficiaries_qs = Beneficiary.objects.none()
+
+    # 3. Optionally apply existing search/filter/sort logic if available
+    if _apply_search_filter_sort and beneficiaries_qs is not None:
+        try:
+            beneficiaries_qs = _apply_search_filter_sort(beneficiaries_qs, request.GET)
+        except Exception:
+            # if anything fails, fall back to unfiltered qs
+            pass
+
+    # 4. Pagination
+    if paginate:
+        paginator = Paginator(beneficiaries_qs, 20)
+        page_number = request.GET.get('page', 1)
+        page_obj = paginator.get_page(page_number)
+    else:
+        paginator = None
+        page_obj = beneficiaries_qs
+
+    # 5. Training Plans & Batches: show plans where the logged-in user is the theme_expert.
+    #    Attach batches per plan for easy rendering.
+    plans_qs = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
+    plan_ids = list(plans_qs.values_list('id', flat=True))
+    batches_map = {}
+    if plan_ids:
+        batches = Batch.objects.filter(training_plan_id__in=plan_ids).order_by('-start_date')
+        for b in batches:
+            batches_map.setdefault(b.training_plan_id, []).append({
+                'id': b.id,
+                'code': b.code or f"Batch-{b.id}",
+                'title': getattr(b.training_plan, 'training_name', '') if getattr(b, 'training_plan', None) else '',
+                'start_date': b.start_date,
+                'end_date': b.end_date,
+                'status': b.status,
+                'centre_proposed': b.centre_proposed,
+                'created_at': b.created_at,
+            })
+
+    plans_list = []
+    for p in plans_qs:
+        plans_list.append({
+            'id': p.id,
+            'training_name': p.training_name,
+            'theme': p.theme,
+            'approval_status': p.approval_status,
+            'related_batches': batches_map.get(p.id, []),
+        })
+
+    context = {
+        'mandals': mandals,
+        'district_categories': district_categories,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'beneficiaries_count': beneficiaries_qs.count() if hasattr(beneficiaries_qs, 'count') else 0,
+        'training_plans': plans_list,
+    }
+    return context
+
+
+def api_districts_for_mandal(request):
+    """
+    Simple JSON endpoint: ?mandal_id=<id> -> { districts: [{id,name,category_id}, ...] }
+    """
+    mandal_id = request.GET.get('mandal_id')
+    if not mandal_id:
+        return JsonResponse({'error': 'mandal_id required'}, status=400)
+    try:
+        mid = int(mandal_id)
+    except Exception:
+        return JsonResponse({'error': 'invalid mandal_id'}, status=400)
+
+    qs = District.objects.filter(mandal_id=mid).order_by('name').values('id', 'name', 'district_category_id')
+    return JsonResponse({'districts': list(qs)})
 
 @login_required
 def smmu_training_requests(request):
     if getattr(request.user, 'role', '').lower() != 'smmu':
         return HttpResponseForbidden("Not authorized")
 
-    possible_statuses = ['nominated', 'proposed', 'pending']
-    choices = [c[0] for c in Batch._meta.get_field('status').choices]
-    qs = Batch.objects.filter(status__in=[s for s in possible_statuses if s in choices])
+    # Collect canonical status tokens available in Batch.STATUS_CHOICES
+    valid_statuses = {c[0] for c in Batch._meta.get_field('status').choices}
 
-    # Render fragment then return inside wrapper so layout/navigation are consistent
+    # Common statuses we want to show initially (intersection with actual choices)
+    wanted = {'PENDING', 'PROPOSED', 'DRAFT'}
+    statuses_to_show = list(valid_statuses.intersection(wanted))
+
+    # Core filter: batches for plans where current user is theme_expert
+    qs = Batch.objects.filter(
+        training_plan__theme_expert=request.user
+    )
+    if statuses_to_show:
+        qs = qs.filter(status__in=statuses_to_show)
+
+    # Order newest first
+    qs = qs.select_related('training_plan', 'partner').order_by('-created_at')
+
+    # Render fragment
     fragment = render_to_string('smmu/training_requests.html', {'requests': qs}, request=request)
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+
 
 @login_required
 def smmu_request_detail(request, batch_id):
     if getattr(request.user, 'role', '').lower() != 'smmu':
         return HttpResponseForbidden("Not authorized")
 
-    batch = get_object_or_404(Batch, id=batch_id)
+    batch = get_object_or_404(
+        Batch.objects.select_related('training_plan', 'partner')
+        .prefetch_related('trainers', 'beneficiaries'),
+        id=batch_id,
+        training_plan__theme_expert=request.user
+    )
 
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip().lower()
 
-        # Build a case-insensitive map of available status tokens -> canonical token
+        # Build case-insensitive map of statuses
         status_choices = {c[0].lower(): c[0] for c in Batch._meta.get_field('status').choices}
 
         def set_status_if_available(token_lower):
@@ -1651,40 +1930,35 @@ def smmu_request_detail(request, batch_id):
             return False
 
         if action == 'approve':
-            # Copy proposed centre into confirmed centre if not already set
+            # Copy proposed centre if confirmed not set
             if getattr(batch, 'centre_proposed', None) and not getattr(batch, 'centre', None):
                 batch.centre = batch.centre_proposed
-                # optional: clear proposed after approval to avoid duplication/history
-                # batch.centre_proposed = None
 
-            # Prefer ONGOING after approval if available, else fallback to PENDING or other reasonable token
+            # Prefer ONGOING after approval
             set_success = False
             if set_status_if_available('ONGOING'):
                 set_success = True
             else:
-                # try reasonable fallbacks in order
-                for fallback in ('PENDING', 'APPROVED', 'NOMINATED', 'PROPOSED', 'DRAFT'):
+                for fallback in ('PENDING', 'APPROVED', 'PROPOSED', 'DRAFT'):
                     if set_status_if_available(fallback):
                         set_success = True
                         break
 
-            # Save once after changes
             batch.save()
-
             if set_success:
                 messages.success(request, "Batch approved and status updated.")
             else:
-                messages.success(request, "Batch approved (status mapping not found; marked as approved locally).")
+                messages.success(request, "Batch approved (status token not mapped cleanly).")
 
         elif action == 'reject':
             if set_status_if_available('REJECTED'):
                 batch.save()
                 messages.info(request, "Batch rejected.")
             else:
-                messages.info(request, "Batch rejection recorded (status mapping not found).")
+                messages.info(request, "Batch rejection recorded (status token not mapped).")
 
         return redirect('smmu_training_requests')
 
-    # GET: render inside wrapper dashboard so top navigation and layout remain the same
+    # GET: render
     fragment_html = render_to_string('smmu/request_detail.html', {'batch': batch}, request=request)
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
