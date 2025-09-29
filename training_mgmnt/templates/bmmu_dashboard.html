@@ -9,6 +9,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <!-- Bootstrap CSS assumed loaded globally in your base; if not include here -->
   <style>
+  #beneficiariesTable td {
+    color: #212529 !important;
+    text-indent: 0 !important;
+    opacity: 1 !important;
+  }
+
   /* preserve your old styles + sticky header */
   .table-responsive.custom-scroll { overflow-x: auto; max-height: 60vh; }
   #beneficiariesTable thead th {
@@ -83,20 +89,16 @@
   </style>
 </head>
 <body>
-
 <div class="container-fluid">
 
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h3 class="mb-0">BMMU Dashboard</h3>
-    <div>
-      <!-- Analytics toggle -->
-      <button id="toggleAnalyticsTop" class="btn btn-sm btn-outline-primary" aria-expanded="false" aria-controls="analyticsPanel">Show analytics</button>
-    </div>
+    <!-- Analytics toggle -->
+    <button id="toggleAnalyticsTop" class="btn btn-sm btn-outline-primary ms-auto" aria-expanded="false" aria-controls="analyticsPanel">Show analytics</button>
   </div>
 
   <div class="dashboard-grid" id="dashboardGrid">
 
-    <!-- Left: Beneficiary Management (full old content) -->
+    <!-- Left: Beneficiary Management -->
     <div>
       <h4 class="mb-3">Beneficiary Management</h4>
 
@@ -104,7 +106,7 @@
       <div class="d-flex align-items-center fragment-toolbar gap-2 mb-2">
         <div style="flex:1 1 520px;">
           <div class="input-group">
-            <input id="globalSearch" class="form-control form-control-lg" placeholder="Global search (member/shg/mobile/...)" value="{{ search_query }}">
+            <input id="globalSearch" class="form-control form-control-lg" placeholder="Search member name / SHG / Gram Panchayat / Village" value="{{ search_query }}">
             <button class="btn btn-outline-secondary" id="globalSearchBtn">Search</button>
           </div>
         </div>
@@ -113,13 +115,16 @@
           <div class="input-group">
             <select id="toolbarSortBy" class="form-select form-select-sm">
               <option value="">Sort by</option>
-              {% for item in field_list %}
-                {% with fname=item.0 vname=item.1 %}
-                  {% if fname != 'id' %}
-                    <option value="{{ fname }}" {% if sort_by == fname %}selected{% endif %}>{{ vname|title }}</option>
-                  {% endif %}
-                {% endwith %}
-              {% endfor %}
+              <!-- Provide only the model-field names we expose -->
+              <option value="member_name" {% if sort_by == 'member_name' %}selected{% endif %}>Member Name</option>
+              <option value="date_of_birth" {% if sort_by == 'date_of_birth' %}selected{% endif %}>Age</option>
+              <option value="shg_name" {% if sort_by == 'shg_name' %}selected{% endif %}>SHG Name</option>
+              <option value="social_category" {% if sort_by == 'social_category' %}selected{% endif %}>Social Category</option>
+              <option value="designation_in_shg_vo_clf" {% if sort_by == 'designation_in_shg_vo_clf' %}selected{% endif %}>Designation</option>
+              <option value="religion" {% if sort_by == 'religion' %}selected{% endif %}>Religion</option>
+              <option value="gender" {% if sort_by == 'gender' %}selected{% endif %}>Gender</option>
+              <option value="gram_panchayat" {% if sort_by == 'gram_panchayat' %}selected{% endif %}>Gram Panchayat</option>
+              <option value="village" {% if sort_by == 'village' %}selected{% endif %}>Village</option>
             </select>
             <select id="toolbarOrder" class="form-select form-select-sm" style="min-width:110px;">
               <option value="asc" {% if order == 'asc' %}selected{% endif %}>Ascending</option>
@@ -155,7 +160,7 @@
       <script id="__groupable_values_json" type="application/json">{{ groupable_values_json|safe }}</script>
 
       <div class="table-responsive custom-scroll mt-3">
-        <table class="table table-bordered table-hover table-sm" id="beneficiariesTable" style="min-width:1400px;">
+        <table class="table table-bordered table-hover table-sm" id="beneficiariesTable" style="min-width:1100px;">
           <thead class="table-dark">
             <tr>
               <th style="width:60px; white-space:nowrap;">
@@ -164,42 +169,238 @@
                 </div>
               </th>
 
-              {% for item in field_list %}
-                {% with field_name=item.0 verbose_name=item.1 %}
-                  {% if field_name != 'id' %}
-                    <th style="min-width:160px; white-space:nowrap;" data-field="{{ field_name }}">
-                      <span class="col-header">{{ verbose_name|title }}</span>
-                      <div class="d-flex">
-                        {% if groupable_values and groupable_values|get_item:field_name %}
-                          <div class="dropdown w-100">
-                            <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_{{ field_name }}" data-bs-toggle="dropdown" aria-expanded="false" data-field="{{ field_name }}">Filter</button>
-                            <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
-                              <div class="dropdown-checkboxes">
-                                {% with groupable_values|get_item:field_name as vals %}
-                                  {% for val in vals %}
-                                    {% if val %}
-                                      <div class="form-check">
-                                        <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="{{ field_name }}" value="{{ val }}" id="chk_{{ field_name }}_{{ forloop.counter }}">
-                                        <label class="form-check-label" for="chk_{{ field_name }}_{{ forloop.counter }}">{{ val }}</label>
-                                      </div>
-                                    {% endif %}
-                                  {% endfor %}
-                                {% endwith %}
-                              </div>
-                              <div class="d-flex justify-content-between mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="{{ field_name }}">Clear</button>
-                                <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="{{ field_name }}">Apply</button>
-                              </div>
-                            </div>
-                          </div>
-                        {% else %}
-                          <div class="text-muted small">—</div>
-                        {% endif %}
+              <!-- Explicit column definitions (only requested fields) -->
+              <th style="min-width:200px; white-space:nowrap;" data-field="member_name">
+                <span class="col-header">Member Name</span>
+                <div class="d-flex">
+                  <div class="text-muted small">—</div>
+                </div>
+              </th>
+
+              <th style="min-width:90px; white-space:nowrap;" data-field="date_of_birth">
+                <span class="col-header">Age</span>
+                <div class="d-flex">
+                  <div class="text-muted small">Sort by DOB</div>
+                </div>
+              </th>
+
+              <th style="min-width:180px; white-space:nowrap;" data-field="shg_name">
+                <span class="col-header">SHG Name</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"shg_name" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_shg_name" data-bs-toggle="dropdown" aria-expanded="false" data-field="shg_name">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"shg_name" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="shg_name" value="{{ val }}" id="chk_shg_name_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_shg_name_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="shg_name">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="shg_name">Apply</button>
+                        </div>
                       </div>
-                    </th>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
                   {% endif %}
-                {% endwith %}
-              {% endfor %}
+                </div>
+              </th>
+
+              <th style="min-width:140px; white-space:nowrap;" data-field="social_category">
+                <span class="col-header">Social Category</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"social_category" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_social_category" data-bs-toggle="dropdown" aria-expanded="false" data-field="social_category">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"social_category" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="social_category" value="{{ val }}" id="chk_social_category_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_social_category_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="social_category">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="social_category">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
+                  {% endif %}
+                </div>
+              </th>
+
+              <th style="min-width:160px; white-space:nowrap;" data-field="designation_in_shg_vo_clf">
+                <span class="col-header">Designation</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"designation_in_shg_vo_clf" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_designation_in_shg_vo_clf" data-bs-toggle="dropdown" aria-expanded="false" data-field="designation_in_shg_vo_clf">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"designation_in_shg_vo_clf" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="designation_in_shg_vo_clf" value="{{ val }}" id="chk_designation_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_designation_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="designation_in_shg_vo_clf">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="designation_in_shg_vo_clf">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
+                  {% endif %}
+                </div>
+              </th>
+
+              <th style="min-width:120px; white-space:nowrap;" data-field="religion">
+                <span class="col-header">Religion</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"religion" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_religion" data-bs-toggle="dropdown" aria-expanded="false" data-field="religion">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"religion" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="religion" value="{{ val }}" id="chk_religion_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_religion_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="religion">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="religion">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
+                  {% endif %}
+                </div>
+              </th>
+
+              <th style="min-width:100px; white-space:nowrap;" data-field="gender">
+                <span class="col-header">Gender</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"gender" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_gender" data-bs-toggle="dropdown" aria-expanded="false" data-field="gender">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"gender" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="gender" value="{{ val }}" id="chk_gender_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_gender_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="gender">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="gender">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
+                  {% endif %}
+                </div>
+              </th>
+
+              <th style="min-width:150px; white-space:nowrap;" data-field="gram_panchayat">
+                <span class="col-header">Gram Panchayat</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"gram_panchayat" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_gram_panchayat" data-bs-toggle="dropdown" aria-expanded="false" data-field="gram_panchayat">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"gram_panchayat" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="gram_panchayat" value="{{ val }}" id="chk_gram_panchayat_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_gram_panchayat_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="gram_panchayat">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="gram_panchayat">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
+                  {% endif %}
+                </div>
+              </th>
+
+              <th style="min-width:140px; white-space:nowrap;" data-field="village">
+                <span class="col-header">Village</span>
+                <div class="d-flex">
+                  {% if groupable_values and groupable_values|get_item:"village" %}
+                    <div class="dropdown w-100">
+                      <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" id="dd_main_village" data-bs-toggle="dropdown" aria-expanded="false" data-field="village">Filter</button>
+                      <div class="dropdown-menu p-2" style="min-width:220px; max-height:300px; overflow-y:auto;">
+                        <div class="dropdown-checkboxes">
+                          {% with groupable_values|get_item:"village" as vals %}
+                            {% for val in vals %}
+                              {% if val %}
+                                <div class="form-check">
+                                  <input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="village" value="{{ val }}" id="chk_village_{{ forloop.counter }}">
+                                  <label class="form-check-label" for="chk_village_{{ forloop.counter }}">{{ val }}</label>
+                                </div>
+                              {% endif %}
+                            {% endfor %}
+                          {% endwith %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                          <button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="village">Clear</button>
+                          <button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="village">Apply</button>
+                        </div>
+                      </div>
+                    </div>
+                  {% else %}
+                    <div class="text-muted small">—</div>
+                  {% endif %}
+                </div>
+              </th>
+
             </tr>
           </thead>
           <tbody>
@@ -211,16 +412,35 @@
                   </div>
                 </td>
 
-                {% for item in field_list %}
-                  {% with field_name=item.0 verbose_name=item.1 %}
-                    {% if field_name != 'id' %}
-                      <td style="white-space:normal;">{{ obj|attr:field_name }}</td>
-                    {% endif %}
-                  {% endwith %}
-                {% endfor %}
+                <!-- Member Name -->
+                <td style="white-space:normal;">{{ obj|attr:"member_name" }}</td>
+
+                <!-- Age (computed from date_of_birth client-side). store dob in data attribute for JS -->
+                <td style="white-space:normal;" data-dob="{{ obj.date_of_birth|default:'' }}">{{ obj.date_of_birth|default:'' }}</td>
+
+                <!-- SHG Name -->
+                <td style="white-space:normal;">{{ obj|attr:"shg_name" }}</td>
+
+                <!-- Social Category -->
+                <td style="white-space:normal;">{{ obj|attr:"social_category" }}</td>
+
+                <!-- Designation -->
+                <td style="white-space:normal;">{{ obj|attr:"designation_in_shg_vo_clf"}}</td>
+
+                <!-- Religion -->
+                <td style="white-space:normal;">{{ obj|attr:"religion" }}</td>
+
+                <!-- Gender -->
+                <td style="white-space:normal;">{{ obj|attr:"gender" }}</td>
+
+                <!-- Gram Panchayat -->
+                <td style="white-space:normal;">{{ obj|attr:"gram_panchayat" }}</td>
+
+                <!-- Village -->
+                <td style="white-space:normal;">{{ obj|attr:"village" }}</td>
               </tr>
             {% empty %}
-              <tr><td colspan="{{ field_list|length|add:'0' }}" class="text-center">No beneficiaries found.</td></tr>
+              <tr><td colspan="10" class="text-center">No beneficiaries found.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -332,7 +552,6 @@ try {
   if (el) GROUPABLE_VALUES = JSON.parse(el.textContent || el.innerText || '{}');
 } catch(e){ GROUPABLE_VALUES = {}; }
 
-/* ---------- Chart handling (init only when analytics open) ---------- */
 let _chart1 = null, _chart2 = null;
 function initCharts() {
   try {
@@ -367,7 +586,6 @@ function initCharts() {
   }
 }
 
-/* ---------- Fragment reload helper ---------- */
 function reloadFragmentWithParams(params) {
   const qs = params && params.toString() ? ('?' + params.toString()) : '';
   const url = FRAGMENT_URL + qs;
@@ -391,7 +609,6 @@ function currentParams() {
   return new URLSearchParams(window.location.search || '');
 }
 
-/* ---------- Toolbar handlers (search / toolbar Apply) ---------- */
 function attachToolbarHandlers() {
   document.getElementById('globalSearchBtn')?.addEventListener('click', function(){
     const q = document.getElementById('globalSearch')?.value?.trim() || '';
@@ -427,7 +644,6 @@ function attachToolbarHandlers() {
   });
 }
 
-/* ---------- Per-column filter handlers ---------- */
 function attachDropdownFilters() {
   document.querySelectorAll('.main-dd-apply').forEach(btn => {
     btn.removeEventListener?.('click', btn._main_dd_apply_listener);
@@ -471,7 +687,6 @@ function attachDropdownFilters() {
   });
 }
 
-/* ---------- Header sorting ---------- */
 function wireHeaderSorting() {
   document.querySelectorAll('#beneficiariesTable thead th[data-field]').forEach(th => {
     const field = th.dataset.field;
@@ -499,7 +714,6 @@ function wireHeaderSorting() {
   });
 }
 
-/* ---------- Dropdown move-to-body ---------- */
 function initDropdownMoveToBody() {
   document.querySelectorAll('.dropdown-toggle[data-field]').forEach(btn => {
     if (btn._moved_listener) return;
@@ -535,7 +749,6 @@ function initDropdownMoveToBody() {
   });
 }
 
-/* ---------- Row selection ---------- */
 function initRowSelectionHandlers() {
   const selectAll = document.getElementById('selectAllRows');
   if (selectAll) {
@@ -557,7 +770,6 @@ function getSelectedIds() {
   return Array.from(document.querySelectorAll('.row-select-checkbox:checked')).map(cb => cb.dataset.id);
 }
 
-/* ---------- Actions: Inline Add & Delete ---------- */
 function wireActionsForTable() {
   document.getElementById('action_import')?.addEventListener('click', function(e){
     e.preventDefault();
@@ -629,7 +841,6 @@ function wireActionsForTable() {
   });
 }
 
-/* ---------- fragmentInit: wire everything ---------- */
 function fragmentInit() {
   try { initCharts(); } catch(e) { /* charts may not be visible; safe to ignore */ }
   try { attachToolbarHandlers(); } catch(e) { console.warn('toolbar handlers error', e); }
@@ -638,14 +849,46 @@ function fragmentInit() {
   try { wireHeaderSorting(); } catch(e) { console.warn('wireHeaderSorting', e); }
   try { initRowSelectionHandlers(); } catch(e) { console.warn('row selection init', e); }
   try { wireActionsForTable(); } catch(e) { console.warn('actions wiring', e); }
+
+  // Compute Age column values client-side from data-dob (YYYY-MM-DD). Leaves DOB cell unchanged if blank.
+  try {
+    document.querySelectorAll('#beneficiariesTable tbody tr').forEach(row => {
+      const dobTd = row.querySelector('td[data-dob]');
+      if (!dobTd) return;
+      const dobVal = dobTd.getAttribute('data-dob');
+      if (!dobVal) {
+        dobTd.textContent = '';
+        return;
+      }
+      const d = new Date(dobVal);
+      if (isNaN(d.getTime())) {
+        const maybe = (dobVal || '').split(' ')[0];
+        const d2 = new Date(maybe);
+        if (isNaN(d2.getTime())) {
+          dobTd.textContent = dobVal || '';
+          return;
+        } else {
+          computeAndSetAge(d2, dobTd);
+        }
+      } else {
+        computeAndSetAge(d, dobTd);
+      }
+    });
+  } catch(e) { console.warn('Age compute error', e); }
 }
 
-/* Run fragmentInit on load (it wires up handlers; charts init is deferred until analytics open) */
+function computeAndSetAge(dobDate, td) {
+  const today = new Date();
+  let age = today.getFullYear() - dobDate.getFullYear();
+  const m = today.getMonth() - dobDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dobDate.getDate())) age--;
+  td.textContent = (Number.isFinite(age) && age >= 0) ? age : '';
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   fragmentInit();
 });
 
-/* ---------- Analytics toggle behavior ---------- */
 (function(){
   const dashboardGrid = document.getElementById('dashboardGrid');
   const analyticsPanel = document.getElementById('analyticsPanel');

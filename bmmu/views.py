@@ -18,10 +18,8 @@ from django.db import transaction
 from django.conf import settings
 from django import forms
 
-from .models import (
-    User, Beneficiary, TrainingPlan, MasterTrainer, TrainingPartner,
-    Batch, TrainingPartnerAssignment, MasterTrainerExpertise, MasterTrainerCertificate, TrainingPartnerSubmission
-)
+from .models import *
+
 from .resources import UserResource, BeneficiaryResource, TrainingPlanResource, MasterTrainerResource
 from .utils import export_blueprint
 from .forms import TrainingPlanForm, BatchNominateForm, TrainingPartnerProfileForm, PublicMasterTrainerProfileForm, TrainingPartnerSubmissionForm, SignupForm, MasterTrainerCertificateForm
@@ -107,6 +105,12 @@ def custom_login(request):
         return redirect("dashboard")
 
     return render(request, "login.html")
+
+@login_required
+def custom_logout(request):
+    logout(request)
+    return redirect("custom_login")
+
 
 def signup(request):
     """
@@ -467,55 +471,117 @@ def load_app_content(request, app_name):
     html = render_to_string(app_config["template"], context, request=request)
     return HttpResponse(html)
 
-@login_required
-def custom_logout(request):
-    logout(request)
-    return redirect("custom_login")
-
-
 def _apply_search_filter_sort(queryset, params):
     """
     Apply search, filters and sorting via GET params.
+
+    This function now guarantees that the returned queryset is a normal
+    Beneficiary model queryset (not a values/annotated queryset), by
+    re-querying the model using the PKs after filters are applied.
     """
-    icontains_fields = {
-        "member_name", "district", "block", "gram_panchayat",
-        "village", "shg_name", "designation_in_shg_vo_clf",
-        "education", "parent_or_spouse_name",
-        "branch_name", "bank_name", "social_category", "gender", "marital_status", "cadres_role"
-    }
+    from django.db.models import CharField, TextField, ForeignKey
+    from django.db.models.query import QuerySet
+
+    # Whitelist of fields allowed for global search (text-like fields only)
+    allowed_search_fields = {"member_name", "shg_name", "gram_panchayat", "village"}
+    # Additional exact/partial extras
+    extras_icontains = {"mobile_no", "aadhaar_no", "member_lokos_code", "shg_lokos_code"}
 
     search = params.get("search", "").strip()
     if search:
         q_obj = Q()
-        model_fields = [f.name for f in Beneficiary._meta.fields]
-        for f in icontains_fields:
+        model_fields = {f.name: f for f in Beneficiary._meta.fields}
+        # search only allowed text fields
+        for f in allowed_search_fields:
             if f in model_fields:
-                q_obj |= Q(**{f"{f}__icontains": search})
-        for extra in ("member_lokos_code", "mobile_no", "shg_lokos_code", "aadhaar_no"):
+                fld_obj = model_fields[f]
+                # only if field is char/text-like
+                if isinstance(fld_obj, (CharField, TextField)):
+                    q_obj |= Q(**{f"{f}__icontains": search})
+        # extras: mobile/aadhaar etc.
+        for extra in extras_icontains:
             if extra in model_fields:
                 q_obj |= Q(**{f"{extra}__icontains": search})
         queryset = queryset.filter(q_obj)
 
+    # Filters passed as filter_<field>=value
+    model_fields = {f.name: f for f in Beneficiary._meta.fields}
     for key, val in params.items():
-        if key.startswith("filter_") and val:
-            field = key.replace("filter_", "")
-            model_fields = [f.name for f in Beneficiary._meta.fields]
-            if field not in model_fields:
-                continue
-            if "," in val:
-                values = [v.strip() for v in val.split(",") if v.strip()]
-                if values:
-                    queryset = queryset.filter(**{f"{field}__in": values})
-            else:
-                if field in icontains_fields:
-                    queryset = queryset.filter(**{f"{field}__icontains": val})
-                else:
-                    queryset = queryset.filter(**{f"{field}__iexact": val})
+        if not key.startswith("filter_") or not val:
+            continue
+        field = key.replace("filter_", "")
+        if field not in model_fields:
+            continue
 
+        fld_obj = model_fields[field]
+        # multiple values comma separated
+        if "," in val:
+            values = [v.strip() for v in val.split(",") if v.strip()]
+            if not values:
+                continue
+            # If field is FK, attempt to use <field>_id if provided numeric ids, otherwise skip FK filtering
+            if isinstance(fld_obj, ForeignKey):
+                int_vals = []
+                for vv in values:
+                    try:
+                        int_vals.append(int(vv))
+                    except Exception:
+                        # non-int value: cannot safely filter FK by non-id -> skip
+                        int_vals = []
+                        break
+                if int_vals:
+                    queryset = queryset.filter(**{f"{field}_id__in": int_vals})
+                # otherwise skip FK filter
+            else:
+                queryset = queryset.filter(**{f"{field}__in": values})
+        else:
+            # single value
+            single = val.strip()
+            if isinstance(fld_obj, (CharField, TextField)):
+                # partial match for text fields
+                queryset = queryset.filter(**{f"{field}__icontains": single})
+            elif isinstance(fld_obj, ForeignKey):
+                # if value looks like integer, match by id; else skip to avoid FieldError
+                try:
+                    iid = int(single)
+                except Exception:
+                    # skip FK filter (frontend shouldn't be sending names for FK fields)
+                    continue
+                else:
+                    queryset = queryset.filter(**{f"{field}_id": iid})
+            else:
+                # fallback to case-insensitive exact for other field types
+                queryset = queryset.filter(**{f"{field}__iexact": single})
+
+    # --- COERCE BACK TO A NORMAL MODEL QUERYSET ---
+    try:
+        # If queryset is already a QuerySet of models (has .model and model is Beneficiary),
+        # we still re-query to be safe (ensures instance objects, not values/annotations).
+        if isinstance(queryset, QuerySet):
+            # collect current PKs (this works for normal queryset and many annotated querysets)
+            pk_list = list(queryset.values_list('pk', flat=True))
+            # Rebuild a fresh model queryset preserving only these PKs
+            if pk_list:
+                queryset = Beneficiary.objects.filter(pk__in=pk_list).select_related('district', 'block')
+            else:
+                # empty result: return empty queryset of model
+                queryset = Beneficiary.objects.none()
+        else:
+            # Not a Django QuerySet (unlikely) — try to leave it untouched
+            pass
+    except Exception:
+        # In case anything goes wrong, fallback to original queryset (avoid crashing)
+        try:
+            queryset = Beneficiary.objects.filter(pk__in=list(queryset.values_list('pk', flat=True)))
+        except Exception:
+            # ultimate fallback: full set (safe but broader)
+            queryset = Beneficiary.objects.all().select_related('district', 'block')
+
+    # Sorting
     sort_by = params.get("sort_by", "")
     order = params.get("order", "asc")
-    model_fields = [f.name for f in Beneficiary._meta.fields]
-    if sort_by and sort_by in model_fields:
+    model_field_names = [f.name for f in Beneficiary._meta.fields]
+    if sort_by and sort_by in model_field_names:
         if order == "desc":
             queryset = queryset.order_by(f"-{sort_by}")
         else:
@@ -529,13 +595,39 @@ def _apply_search_filter_sort(queryset, params):
 def _bmmu_fragment_context(request, paginate=True):
     """
     Build context dict for bmmu fragment(s).
+
+    NOTE: If current user is role 'bmmu', restrict beneficiaries to block(s)
+    assigned to that BMMU via BmmuBlockAssignment.
     """
     chart1 = [random.randint(0, 100) for _ in range(10)]
     chart2 = [random.randint(0, 100) for _ in range(10)]
     chart_labels = [f'Metric {i+1}' for i in range(10)]
 
+    # Start with full queryset, then restrict if current user is a BMMU.
     beneficiaries_qs = Beneficiary.objects.all()
     all_qs_for_groupables = Beneficiary.objects.all()
+
+    # If the logged-in user is a BMMU, restrict to assigned block(s).
+    try:
+        user_role = getattr(request.user, "role", "").lower()
+        if user_role == "bmmu":
+            assigned_block_ids = list(
+                BmmuBlockAssignment.objects.filter(user=request.user)
+                .values_list("block_id", flat=True)
+            )
+            if assigned_block_ids:
+                beneficiaries_qs = beneficiaries_qs.filter(block_id__in=assigned_block_ids)
+                all_qs_for_groupables = all_qs_for_groupables.filter(block_id__in=assigned_block_ids)
+            else:
+                # No assigned blocks: restrict to empty queryset (BMMU sees nothing).
+                beneficiaries_qs = beneficiaries_qs.none()
+                all_qs_for_groupables = all_qs_for_groupables.none()
+    except Exception:
+        # Fail-safe: if anything unexpected happens, log and keep full queryset
+        logger.exception("Failed to apply BMMU block restriction; falling back to full dataset.")
+        beneficiaries_qs = Beneficiary.objects.all()
+        all_qs_for_groupables = Beneficiary.objects.all()
+
     groupable_fields = [
         "district", "block", "gram_panchayat", "village",
         "shg_name", "designation_in_shg_vo_clf",
@@ -553,6 +645,7 @@ def _bmmu_fragment_context(request, paginate=True):
                 vals = vals[:500]
             groupable_values[fld] = vals
 
+    # Apply search / filters / sorting on the (possibly restricted) beneficiaries_qs
     beneficiaries_qs = _apply_search_filter_sort(beneficiaries_qs, request.GET)
 
     if paginate:
