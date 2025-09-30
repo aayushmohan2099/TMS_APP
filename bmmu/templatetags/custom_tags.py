@@ -57,3 +57,12 @@ def to_json(obj):
         return mark_safe(json.dumps(obj, default=str))
     except Exception:
         return mark_safe(json.dumps({}))
+
+
+register = template.Library()
+
+@register.filter
+def get_item(dictionary, key):
+    if not dictionary:
+        return None
+    return dictionary.get(key)

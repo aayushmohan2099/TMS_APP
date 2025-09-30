@@ -157,8 +157,7 @@
               <table class="table table-sm table-bordered">
                 <thead class="table-dark">
                   <tr>
-                    <th>Batch</th><th>Training</th><th>Theme</th><th>Centre</th><th>Partner</th><th>Start</th><th>End</th><th>Trainers</th><th>Participants</th><th>Action</th>
-                  </tr>
+                    <th>Batch</th><th>Training</th><th>Theme</th><th>Centre</th><th>Partner</th><th>Start</th><th>End</th><th>Trainers</th><th>Participants</th>
                 </thead>
                 <tbody>
                   {% for b in ongoing %}
@@ -166,13 +165,12 @@
                       <td>{{ b.code|default:b.id }}</td>
                       <td>{{ b.training_plan.training_name }}</td>
                       <td>{{ b.training_plan.theme }}</td>
-                      <td>{{ b.centre|default:"(not set)" }}</td>
+                      <td>{{ b.centre_proposed|default:"(not set)" }}</td>
                       <td>{% if b.partner %}{{ b.partner.name }}{% else %}&mdash;{% endif %}</td>
                       <td>{{ b.start_date|date:"Y-m-d"|default:"—" }}</td>
                       <td>{{ b.end_date|date:"Y-m-d"|default:"—" }}</td>
                       <td>{{ b.trainers.count }}</td>
                       <td>{{ b.beneficiaries.count }}</td>
-                      <td><a class="btn btn-sm btn-outline-primary" href="{% url 'partner_view_batch' b.id %}">Open</a></td>
                     </tr>
                   {% endfor %}
                 </tbody>

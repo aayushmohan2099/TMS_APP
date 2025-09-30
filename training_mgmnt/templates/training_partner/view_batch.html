@@ -1,4 +1,5 @@
 {% extends "training_partner/base_partner.html" %}
+{% load custom_tags %}
 {% block title %}Batch {{ batch.code|default:batch.id }}{% endblock %}
 {% block header_title %}Batch: {{ batch.code|default:batch.id }}{% endblock %}
 
@@ -16,44 +17,150 @@
         <h6>Centre & Dates</h6>
         <p><strong>No. of Days (Training Runtime):</strong> {{ batch.training_plan.no_of_days }}</p>
         <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
-        <p><strong>Proposed Centre (by partner):</strong> {{ batch.centre_proposed|default:"(not proposed)" }}</p>
+        <p>
+          <strong>Proposed Centre (by partner):</strong>
+          {{ batch.centre_proposed|default:"(not proposed)" }}
+          &nbsp;
+          <a class="btn btn-sm btn-outline-primary ms-2" href="{% url 'training_partner_centre_registration' %}" target="_blank">Open Centre Registration</a>
+        </p>
         <p><strong>Start date:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} &nbsp;
            <strong>End date:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
       </div>
 
+      <!-- quick preview of partner centre submissions (uses same data available in centre_registration view) -->
+      <div class="mb-3">
+        <h6>Centre Submission Preview</h6>
+        {% if submissions %}
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+              <thead class="table-light">
+                <tr><th>Uploaded</th><th>Category</th><th>Notes</th><th>File</th></tr>
+              </thead>
+              <tbody>
+                {% for s in submissions %}
+                  <tr>
+                    <td>{{ s.uploaded_on|date:"Y-m-d H:i" }}</td>
+                    <td>{{ s.get_category_display|default:s.category }}</td>
+                    <td>{{ s.notes|truncatechars:60 }}</td>
+                    <td>
+                      {% if s.file %}
+                        <a href="{{ s.file.url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Open</a>
+                      {% else %}
+                        &mdash;
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="small text-muted">Showing recent centre submissions for this partner. Use the Centre Registration page to upload photos and details.</div>
+        {% else %}
+          <div class="text-muted">No centre submissions found for this partner. Click <a href="{% url 'training_partner_centre_registration' %}" target="_blank">Open Centre Registration</a> to upload photos & details.</div>
+        {% endif %}
+      </div>
+
       <hr>
 
-      <!-- Assigned trainers -->
+      <!-- Assigned trainers (table) -->
       <div class="mb-3">
         <h6>Selected Trainers</h6>
-        <ul>
-          {% for t in batch.trainers.all %}
-            <li>
-              <strong>{{ t.full_name }}</strong>
-              {% if t.certificate_number %} — {{ t.certificate_number }}{% endif %}
-              {% if t.skills %} <span class="text-muted">({{ t.skills }})</span>{% endif %}
-            </li>
-          {% empty %}
-            <li><em>No trainers assigned yet.</em></li>
-          {% endfor %}
-        </ul>
+        {% if batch.trainers.exists %}
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered">
+              <thead class="table-dark">
+                <tr>
+                  <th>Name</th>
+                  <th>Certificate No</th>
+                  <th>Module</th>
+                  <th>Success Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for t in batch.trainers.all %}
+                  <tr>
+                    <td>
+                      {% if t.full_name %}
+                        {{ t.full_name }}
+                      {% elif t.get_full_name %}
+                        {{ t.get_full_name }}
+                      {% else %}
+                        {{ t.username }}
+                      {% endif %}
+                    </td>
+
+                    <td>
+                      {# Certificate number comes from MasterTrainerCertificate (trainer_cert_map passed from view) #}
+                      {% with certnum=trainer_cert_map|get_item:t.id %}
+                        {% if certnum %}
+                          {{ certnum }}
+                        {% else %}
+                          &mdash;
+                        {% endif %}
+                      {% endwith %}
+                    </td>
+
+                    <td>
+                      {% if t.module %}{{ t.module }}{% else %}{{ t.skills|default:"—" }}{% endif %}
+                    </td>
+
+                    <td>
+                      {% if t.success_rate is not None %}{{ t.success_rate }}%{% else %}&mdash;{% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div><em>No trainers assigned yet.</em></div>
+        {% endif %}
       </div>
 
-      <!-- Participants -->
+      <!-- Participants (table) -->
       <div class="mb-3">
         <h6>Participants</h6>
-        <ul>
-          {% for b in batch.beneficiaries.all %}
-            <li>{{ b.member_name }}{% if b.shg_name %} — {{ b.shg_name }}{% endif %} {% if b.village %} ({{ b.village }}){% endif %}</li>
-          {% empty %}
-            <li><em>No participants assigned yet.</em></li>
-          {% endfor %}
-        </ul>
+        {% if batch.beneficiaries.exists %}
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+              <thead class="table-light">
+                <tr>
+                  <th>SHG Name</th>
+                  <th>Member Name</th>
+                  <th>Age</th>
+                  <th>Social Category</th>
+                  <th>Religion</th>
+                  <th>Mobile Number</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for b in beneficiaries %}
+                  <tr>
+                    <td>{{ b.shg_name|default:"—" }}</td>
+                    <td>{{ b.member_name|default:"—" }}</td>
+                    <td>
+                      {% if b.age is not None %}
+                        {{ b.age }}
+                      {% else %}
+                        &mdash;
+                      {% endif %}
+                    </td>
+                    <td>{{ b.social_category|default:"—" }}</td>
+                    <td>{{ b.religion|default:"—" }}</td>
+                    <td>{{ b.mobile_number|default:"—" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div><em>No participants assigned yet.</em></div>
+        {% endif %}
       </div>
 
       <hr>
 
-      <!-- Partner proposal form (AJAX) -->
+      <!-- Partner proposal form (AJAX) (unchanged) -->
       <h6>Propose centre & dates (Partner)</h6>
       <div id="partner-propose-area" class="mb-3">
         <div class="mb-2">
@@ -82,7 +189,7 @@
     </div>
   </div>
 
-  <!-- Toast markup (Bootstrap 5) - unobtrusive top-right toast for visual confirmation -->
+  <!-- Toast markup (Bootstrap 5) -->
   <div class="position-fixed top-0 end-0 p-3" style="z-index: 99999;">
     <div id="proposalToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="5000">
       <div class="toast-header">
@@ -94,10 +201,9 @@
     </div>
   </div>
 
-  <!-- small script to call partner_propose_dates view -->
+  <!-- small script to call partner_propose_dates view (kept same as your file) -->
   <script>
   (function(){
-    // CSRF helper (reads csrftoken cookie)
     function getCookie(name) {
       let cookieValue = null;
       if (document.cookie && document.cookie !== '') {
@@ -117,7 +223,6 @@
     const proposeBtn = document.getElementById('proposeBtn');
     const notify = document.getElementById('partnerNotify');
 
-    // Toast init (Bootstrap 5)
     let toastEl = document.getElementById('proposalToast');
     let toastInstance = null;
     try {
@@ -131,23 +236,20 @@
 
     function showToastMessage(message, isError) {
       if (!toastEl) return;
-      // set header small text and body
       const headerSmall = toastEl.querySelector('.toast-header small');
       const body = toastEl.querySelector('.toast-body');
       body.textContent = message;
       headerSmall.textContent = isError ? 'Error' : 'Sent';
-      // style header text red for errors
       const header = toastEl.querySelector('.toast-header');
       if (isError) {
         header.classList.add('text-danger');
       } else {
         header.classList.remove('text-danger');
       }
-      try { toastInstance?.show(); } catch(e) { /* ignore */ }
+      try { toastInstance?.show(); } catch(e) {}
     }
 
     proposeBtn?.addEventListener('click', function(){
-      // disable button while request in progress
       proposeBtn.disabled = true;
       const prevText = proposeBtn.textContent;
       proposeBtn.textContent = 'Sending...';
@@ -174,23 +276,18 @@
         try { data = await r.json(); } catch(e) { data = null; }
 
         if (r.ok && data && data.ok) {
-          // update inline notify area (existing behaviour)
           notify.style.display = 'block';
           notify.className = 'alert alert-success';
           notify.innerText = 'Proposal sent successfully. New status: ' + (data.new_status || 'N/A');
 
-          // show toast popup (new)
           showToastMessage('Proposal sent to SMMU. They will be notified to approve.', false);
 
-          // short delay then reload to reflect updated status/fields
           setTimeout(function(){ window.location.reload(); }, 900);
         } else {
           notify.style.display = 'block';
           notify.className = 'alert alert-danger';
           const errMsg = (data && (data.error || data.message)) ? (data.error || data.message) : ('HTTP ' + r.status);
           notify.innerText = 'Failed to send proposal: ' + errMsg;
-
-          // show error toast as well
           showToastMessage('Failed to send proposal: ' + (errMsg || 'Server error'), true);
         }
       }).catch((err) => {
@@ -200,8 +297,6 @@
         notify.className = 'alert alert-danger';
         notify.innerText = 'Request failed — check console for details.';
         console.error('partner_propose_dates error', err);
-
-        // show toast on network error
         showToastMessage('Network or server error — try again.', true);
       });
     });

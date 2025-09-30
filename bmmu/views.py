@@ -31,6 +31,8 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils import timezone
 from django.db.models import Prefetch
+from datetime import date
+from django.db.models import OuterRef, Subquery
 
 logger = logging.getLogger(__name__)
 
@@ -1454,12 +1456,135 @@ def partner_view_batch(request, batch_id):
     if partner is None or batch.partner_id != partner.id:
         return HttpResponseForbidden("Not your batch")
 
+    submissions = []
+    if partner:
+        try:
+            submissions = TrainingPartnerSubmission.objects.filter(partner=partner).order_by('-uploaded_on')[:8]
+        except Exception:
+            # fallback if TrainingPartnerSubmission import/path is different OR related_name used
+            try:
+                # try using the reverse manager if it exists
+                submissions = partner.trainingsubmission_set.all().order_by('-uploaded_on')[:8]
+            except Exception:
+                submissions = []
+    
+    # Build a mapping trainer_id -> latest certificate_number
+    trainer_cert_map = {}
+    # best-effort: pick latest by issued_on then created_at
+    cert_qs = MasterTrainerCertificate.objects.filter(trainer=OuterRef('pk')).order_by('-issued_on', '-created_at')
+    # We use Subquery to get certificate_number for each trainer if you prefer direct ORM; otherwise fallback to explicit loop:
+    trainer_ids = [t.id for t in batch.trainers.all()]
+    if trainer_ids:
+        certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
+        # iterate and keep first seen (which will be latest due to ordering per trainer_id group not guaranteed — so we do a dict and compare dates)
+        for c in certs:
+            # only keep certificate if not already set OR this one is newer
+            prev = trainer_cert_map.get(c.trainer_id)
+            if not prev:
+                trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+            else:
+                # compare issued_on (None-safe)
+                prev_issued = prev.get('issued_on')
+                cur_issued = c.issued_on
+                if (cur_issued and (not prev_issued or cur_issued > prev_issued)) or (not prev_issued and not cur_issued and c.created_at > prev.get('created_at')):
+                    trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+
+    # Simplify trainer_cert_map to map id -> certificate_number string (or None)
+    trainer_cert_map = {k: (v['certificate_number'] if v and v.get('certificate_number') else None) for k, v in trainer_cert_map.items()}
+
+    # Compute age for beneficiaries and attach .age attribute (int or None)
+    beneficiaries = list(batch.beneficiaries.all())  # evaluate once so attributes persist
+    today = date.today()
+    for b in beneficiaries:
+        dob = getattr(b, 'date_of_birth', None)
+        age = None
+        if dob:
+            try:
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            except Exception:
+                age = None
+        setattr(b, 'age', age)
+
     context = {
         'partner': partner,
         'batch': batch,
+        'submissions': submissions,
+        'trainer_cert_map': trainer_cert_map,
+        'beneficiaries': beneficiaries,
+        'today': today,
     }
     return render(request, 'training_partner/view_batch.html', context)
 
+@login_required
+def training_partner_attendance(request):
+    if getattr(request.user, "role", "").lower() != "training_partner":
+        return HttpResponseForbidden("Not authorized")
+
+    partner = _get_partner_for_user(request.user)
+    if not partner:
+        return HttpResponseForbidden("No partner profile")
+
+    # try to discover canonical 'ongoing' token(s) from Batch.status choices
+    status_field = None
+    try:
+        status_field = Batch._meta.get_field('status')
+        choices = [c[0] for c in getattr(status_field, 'choices', [])]
+    except Exception:
+        choices = []
+
+    ongoing_tokens = [t for t in choices if t and (t.lower() == 'ongoing' or t.upper() == 'ONGOING')]
+    if not ongoing_tokens:
+        # fallback: try 'running' or 'RUNNING'
+        ongoing_tokens = [t for t in choices if t and (t.lower() == 'running' or t.upper() == 'RUNNING')]
+
+    today = timezone.localdate()
+
+    if ongoing_tokens:
+        # add prefetch_related so trainers/beneficiaries are available without extra queries
+        batches_qs = Batch.objects.filter(partner=partner, status__in=ongoing_tokens) \
+            .select_related('training_plan') \
+            .prefetch_related('trainers', 'beneficiaries') \
+            .order_by('start_date')
+    else:
+        # fallback to any batch with start_date <= today <= end_date where partner matches
+        batches_qs = Batch.objects.filter(partner=partner, start_date__lte=today, end_date__gte=today) \
+            .select_related('training_plan') \
+            .prefetch_related('trainers', 'beneficiaries') \
+            .order_by('start_date')
+
+    # Evaluate queryset and attach trainer/beneficiary lists (so attributes we set persist)
+    batches = list(batches_qs)
+
+    # compute age helper
+    def compute_age(dob):
+        if not dob:
+            return None
+        try:
+            today_date = date.today()
+            return today_date.year - dob.year - ((today_date.month, today_date.day) < (dob.month, dob.day))
+        except Exception:
+            return None
+
+    for b in batches:
+        # evaluated lists (so same instances used in templates/modal)
+        trainers_list = list(b.trainers.all())
+        beneficiaries_list = list(b.beneficiaries.all())
+
+        # attach age on beneficiary instances
+        for ben in beneficiaries_list:
+            dob = getattr(ben, 'date_of_birth', None)
+            ben.age = compute_age(dob)
+
+        # attach to batch for template usage (avoid polluting public API, use underscore-prefixed attrs)
+        setattr(b, 'trainers_list', trainers_list)
+        setattr(b, 'beneficiaries_list', beneficiaries_list)
+
+    context = {
+        'partner': partner,
+        'batches': batches,
+        'today': today,
+    }
+    return render(request, 'training_partner/attendance_management.html', context)
 
 @login_required
 def partner_upload_attendance(request, batch_id):
@@ -1623,12 +1748,12 @@ def smmu_dashboard(request):
 
     category_id = request.GET.get("category_id")
     # district category options — if a mandal is selected we can still show categories across districts in that mandal
-    district_categories_qs = DistrictCategory.objects.all().order_by("category_name")
+    district_categories_qs = DistrictCategory.objects.values("category_name").distinct().order_by("category_name")
     if selected_mandal:
         # categories attached to districts in this mandal
         district_ids_for_mandal = districts_qs.values_list("district_id", flat=True)
         district_categories_qs = district_categories_qs.filter(district__district_id__in=district_ids_for_mandal)
-    district_categories = list(district_categories_qs.distinct())
+    district_categories = [c["category_name"] for c in district_categories_qs]
 
     # selected district (this triggers table display)
     selected_district_id = request.GET.get("district_id")
@@ -1793,7 +1918,7 @@ def smmu_fragment_context(request, paginate=True):
     """
     # 1. Mandals and district categories for the selects
     mandals = list(Mandal.objects.all().order_by('name').values('id', 'name'))
-    district_categories = list(DistrictCategory.objects.all().order_by('name').values('id', 'name'))
+    district_categories = list(DistrictCategory.objects.all().order_by('category_name').values('id', 'category_name'))
 
     # 2. If district provided, prepare beneficiaries queryset; otherwise empty
     district_id = request.GET.get('district_id') or request.GET.get('district')
@@ -1916,6 +2041,21 @@ def smmu_request_detail(request, batch_id):
         training_plan__theme_expert=request.user
     )
 
+    trainer_cert_map = {}
+    trainer_ids = [t.id for t in batch.trainers.all()]
+    if trainer_ids:
+        certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
+        for c in certs:
+            prev = trainer_cert_map.get(c.trainer_id)
+            if not prev:
+                trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+            else:
+                prev_issued = prev.get('issued_on')
+                cur_issued = c.issued_on
+                if (cur_issued and (not prev_issued or cur_issued > prev_issued)) or (not prev_issued and not cur_issued and c.created_at > prev.get('created_at')):
+                    trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+    trainer_cert_map = {k: (v['certificate_number'] if v and v.get('certificate_number') else None) for k, v in trainer_cert_map.items()}
+
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip().lower()
 
@@ -1960,5 +2100,39 @@ def smmu_request_detail(request, batch_id):
         return redirect('smmu_training_requests')
 
     # GET: render
-    fragment_html = render_to_string('smmu/request_detail.html', {'batch': batch}, request=request)
+    partner = getattr(batch, 'partner', None)
+
+    # Robustly fetch submissions for partner — try the model directly, then fallback to reverse manager
+    submissions = []
+    if partner:
+        try:
+            submissions = TrainingPartnerSubmission.objects.filter(partner=partner).order_by('-uploaded_on')[:12]
+        except Exception:
+            try:
+                submissions = partner.trainingsubmission_set.all().order_by('-uploaded_on')[:12]
+            except Exception:
+                submissions = []
+
+    beneficiaries = list(batch.beneficiaries.all())
+    today = date.today()
+    for b in beneficiaries:
+        dob = getattr(b, 'date_of_birth', None)
+        age = None
+        if dob:
+            try:
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            except Exception:
+                age = None
+        setattr(b, 'age', age)
+
+    fragment_html = render_to_string('smmu/request_detail.html', {
+        'batch': batch,
+        'partner': partner,
+        'submissions': submissions,
+        'beneficiaries': beneficiaries,
+        'today': today,
+        'trainer_cert_map': trainer_cert_map,        
+
+    }, request=request)
+
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})

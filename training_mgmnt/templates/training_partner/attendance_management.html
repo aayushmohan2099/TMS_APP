@@ -1,0 +1,187 @@
+{% extends "training_partner/base_partner.html" %}
+{% load custom_tags %}
+
+{% block title %}Attendance Management{% endblock %}
+{% block header_title %}Attendance Management{% endblock %}
+{% block header_subtitle %}Verify beneficiaries and master trainers for running batches{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="card-body">
+      <h5>Running Batches</h5>
+      <p class="small text-muted">Batches assigned to your partner that are currently running/ongoing.</p>
+
+      {% if batches %}
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>Batch</th>
+                <th>Training</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Trainers</th>
+                <th>Participants</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in batches %}
+                <tr>
+                  <td>{{ b.code|default:b.id }}</td>
+                  <td>{{ b.training_plan.training_name }}</td>
+                  <td>{{ b.start_date|date:"Y-m-d"|default:"—" }}</td>
+                  <td>{{ b.end_date|date:"Y-m-d"|default:"—" }}</td>
+                  <td>{{ b.trainers.all|length }}</td>
+                  <td>{{ b.beneficiaries.all|length }}</td>
+                  <td>
+                    {# Show Verify button enabled only if start_date==today per your earlier behaviour #}
+                    {% if b.start_date and b.start_date == today %}
+                      <button type="button"
+                              class="btn btn-sm btn-warning ms-1"
+                              data-bs-toggle="modal"
+                              data-bs-target="#ekycModal-{{ b.id }}">
+                        Verify eKYC
+                      </button>
+                    {% else %}
+                      <button class="btn btn-sm btn-outline-secondary ms-1" disabled>Verify eKYC</button>
+                    {% endif %}
+                  </td>
+                </tr>
+
+                {# Modal for this batch (hidden, triggered by above button) #}
+                <div class="modal fade" id="ekycModal-{{ b.id }}" tabindex="-1" aria-labelledby="ekycModalLabel-{{ b.id }}" aria-hidden="true">
+                  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <h5 class="modal-title" id="ekycModalLabel-{{ b.id }}">Verify eKYC — Batch: {{ b.code|default:b.id }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <p class="small text-muted">Below are Master Trainers and Participants for this batch. Use the "Upload eKYC" button to attach verification documents (placeholder).</p>
+
+                        <hr>
+                        <h6>Selected Master Trainers</h6>
+                        {% if b.trainers.all %}
+                          <div class="table-responsive mb-3">
+                            <table class="table table-sm table-bordered">
+                              <thead class="table-light">
+                                <tr>
+                                  <th>Name</th>
+                                  <th>Certificate No</th>
+                                  <th>Module</th>
+                                  <th>Success Rate</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {% for t in b.trainers_list %}
+                                  <tr>
+                                    <td>
+                                      {% if t.full_name %}{{ t.full_name }}{% elif t.get_full_name %}{{ t.get_full_name }}{% else %}{{ t.username }}{% endif %}
+                                    </td>
+                                    <td>
+                                      {# If you pass trainer_cert_map to this template later, you can use it here.
+                                         For now, try to access t.certificates.latest by attribute if available, else show — #}
+                                      {% if t.certificates.all %}
+                                        {# pick latest certificate relation if present (template-level best-effort, will call queryset) #}
+                                        {% with cert=t.certificates.all|first %}
+                                          {{ cert.certificate_number|default:"—" }}
+                                        {% endwith %}
+                                      {% else %}
+                                        &mdash;
+                                      {% endif %}
+                                    </td>
+                                    <td>{% if t.module %}{{ t.module }}{% else %}{{ t.skills|default:"—" }}{% endif %}</td>
+                                    <td>{% if t.success_rate is not None %}{{ t.success_rate }}%{% else %}&mdash;{% endif %}</td>
+                                    <td>
+                                      <button type="button" class="btn btn-sm btn-outline-primary upload-ekyc-btn"
+                                              data-type="trainer" data-batch="{{ b.id }}" data-id="{{ t.id }}">
+                                        Upload eKYC
+                                      </button>
+                                    </td>
+                                  </tr>
+                                {% endfor %}
+                              </tbody>
+                            </table>
+                          </div>
+                        {% else %}
+                          <div class="text-muted">No trainers assigned to this batch.</div>
+                        {% endif %}
+
+                        <hr>
+                        <h6>Participants</h6>
+                        {% if b.beneficiaries.all %}
+                          <div class="table-responsive">
+                            <table class="table table-sm table-bordered">
+                              <thead class="table-light">
+                                <tr>
+                                  <th>SHG Name</th>
+                                  <th>Member Name</th>
+                                  <th>Age</th>
+                                  <th>Social Category</th>
+                                  <th>Religion</th>
+                                  <th>Mobile Number</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {% for p in b.beneficiaries_list %}
+                                  <tr>
+                                    <td>{{ p.shg_name|default:"—" }}</td>
+                                    <td>{{ p.member_name|default:"—" }}</td>
+                                    <td>{% if p.age is not None %}{{ p.age }}{% else %}&mdash;{% endif %}</td>
+                                    <td>{{ p.social_category|default:"—" }}</td>
+                                    <td>{{ p.religion|default:"—" }}</td>
+                                    <td>{{ p.mobile_number|default:"—" }}</td>
+                                    <td>
+                                      <button type="button" class="btn btn-sm btn-outline-primary upload-ekyc-btn"
+                                              data-type="participant" data-batch="{{ b.id }}" data-id="{{ p.id }}">
+                                        Upload eKYC
+                                      </button>
+                                    </td>
+                                  </tr>
+                                {% endfor %}
+                              </tbody>
+                            </table>
+                          </div>
+                        {% else %}
+                          <div class="text-muted">No participants assigned to this batch.</div>
+                        {% endif %}
+                      </div>
+
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {# end modal #}
+
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted py-4">No running batches found.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    // Placeholder JS: show a friendly alert when user clicks Upload eKYC.
+    // You can later replace with a modal file uploader / AJAX form.
+    (function(){
+      document.addEventListener('click', function(e){
+        var el = e.target;
+        if (el && el.classList && el.classList.contains('upload-ekyc-btn')){
+          var type = el.getAttribute('data-type');
+          var batch = el.getAttribute('data-batch');
+          var id = el.getAttribute('data-id');
+          alert('Placeholder: Upload eKYC for ' + type + ' id=' + id + ' (batch ' + batch + '). Implement uploader here.');
+        }
+      }, false);
+    })();
+  </script>
+
+{% endblock %}

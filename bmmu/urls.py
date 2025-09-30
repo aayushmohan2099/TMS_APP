@@ -42,7 +42,7 @@ urlpatterns = [
     path("partner/batch/<int:batch_id>/upload_media/", views.partner_upload_media, name="partner_upload_media"),
     path("partner/batch/<int:batch_id>/invoice/", views.partner_generate_invoice, name="partner_generate_invoice"),
     path("partner/centre-registration/", views.training_partner_centre_registration, name="training_partner_centre_registration"),
-
+    path("partner/attendance/", views.training_partner_attendance, name="training_partner_attendance"),
     # --- Master Trainer URLs ---
     path("master-trainer/", views.master_trainer_dashboard, name="master_trainer_dashboard"),
     path("master-trainer/profile/", views.master_trainer_profile, name="master_trainer_profile"),

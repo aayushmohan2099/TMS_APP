@@ -1,4 +1,5 @@
-{# smmu/request_detail.html — fragment only #}
+{# smmu/request_detail.html - fragment #}
+{% load custom_tags %}
 <h4>Request: {{ batch.code|default:batch.id }}</h4>
 
 <div class="card mb-3">
@@ -11,27 +12,122 @@
     <h6>Centre & Dates</h6>
     <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
     <p><strong>Partner Proposed Centre:</strong> {{ batch.centre_proposed|default:"(not proposed)" }}</p>
-    <p><strong>Start:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} <strong>End:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
+    <p><strong>Start:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} &nbsp;
+       <strong>End:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
+
+    {# Centre submissions preview (uses 'submissions' from view) #}
+    <div class="mb-3">
+      <h6>Partner Centre Submissions</h6>
+      {% if submissions %}
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered">
+            <thead class="table-light">
+              <tr><th>Uploaded</th><th>Category</th><th>Notes</th><th>File</th></tr>
+            </thead>
+            <tbody>
+              {% for s in submissions %}
+                <tr>
+                  <td>{{ s.uploaded_on|date:"Y-m-d H:i" }}</td>
+                  <td>{{ s.get_category_display|default:s.category }}</td>
+                  <td>{{ s.notes|truncatechars:80 }}</td>
+                  <td>
+                    {% if s.file %}
+                      <a href="{{ s.file.url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Open</a>
+                    {% else %}
+                      &mdash;
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted">No centre submissions found for this partner.</div>
+      {% endif %}
+    </div>
 
     <hr>
     <h6>Assigned Trainers</h6>
-    <ul>
-      {% for t in batch.trainers.all %}
-        <li>{{ t.full_name }} {% if t.certificate_number %} — {{ t.certificate_number }}{% endif %} {% if t.skills %} <small>({{ t.skills }})</small>{% endif %}</li>
-      {% empty %}
-        <li><em>No trainers assigned yet.</em></li>
-      {% endfor %}
-    </ul>
+
+    {# Trainers table to match partner view #}
+    {% if batch.trainers.exists %}
+      <div class="table-responsive">
+        <table class="table table-striped table-bordered">
+          <thead class="table-dark">
+            <tr>
+              <th>Name</th>
+              <th>Certificate No</th>
+              <th>Module</th>
+              <th>Success Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in batch.trainers.all %}
+              <tr>
+                <td>
+                  {% if t.full_name %}
+                    {{ t.full_name }}
+                  {% elif t.get_full_name %}
+                    {{ t.get_full_name }}
+                  {% else %}
+                    {{ t.username }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% with certnum=trainer_cert_map|get_item:t.id %}
+                    {% if certnum %}
+                      {{ certnum }}
+                    {% else %}
+                      &mdash;
+                    {% endif %}
+                  {% endwith %}
+                </td>
+                <td>{% if t.module %}{{ t.module }}{% else %}{{ t.skills|default:"—" }}{% endif %}</td>
+                <td>{% if t.success_rate is not None %}{{ t.success_rate }}%{% else %}&mdash;{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div><em>No trainers assigned yet.</em></div>
+    {% endif %}
 
     <hr>
     <h6>Participants</h6>
-    <ul>
-      {% for p in batch.beneficiaries.all %}
-        <li>{{ p.member_name }}{% if p.shg_name %} — {{ p.shg_name }}{% endif %} {% if p.village %}({{ p.village }}){% endif %}</li>
-      {% empty %}
-        <li><em>No participants assigned.</em></li>
-      {% endfor %}
-    </ul>
+
+    {# Participants table to match partner view #}
+    {% if batch.beneficiaries.exists %}
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>SHG Name</th>
+              <th>Member Name</th>
+              <th>Age</th>
+              <th>Social Category</th>
+              <th>Religion</th>
+              <th>Mobile Number</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in beneficiaries %}
+              <tr>
+                <td>{{ p.shg_name|default:"—" }}</td>
+                <td>{{ p.member_name|default:"—" }}</td>
+                <td>{% if p.age %}{{ p.age }}{% else %}&mdash;{% endif %}</td>
+                <td>{{ p.social_category|default:"—" }}</td>
+                <td>{{ p.religion|default:"—" }}</td>
+                <td>{{ p.mobile_number|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div><em>No participants assigned.</em></div>
+    {% endif %}
 
     <hr>
     <form method="post">
