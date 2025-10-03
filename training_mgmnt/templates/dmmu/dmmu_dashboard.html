@@ -1,0 +1,569 @@
+{% load static %}
+{% load custom_tags %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DMMU Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .card-body { background: #fff; }
+    .table-responsive.custom-scroll { overflow-x: auto; max-height: 60vh; }
+    #s_beneficiariesTable thead th { position: sticky; top: 0; z-index: 7; background: #212529; color: white; font-weight:700; font-size:14px; padding:.6rem .75rem; }
+    .col-header { font-weight: 700; font-size: .95rem; color: #fff; display:block; margin-bottom:.25rem;}
+    .filter-btn { padding: .25rem .5rem; font-size: .85rem; }
+    .dropdown-checkboxes { max-height: 260px; overflow:auto; padding: .25rem; }
+    .dropdown-menu.moved-to-body { box-shadow: 0 6px 18px rgba(0,0,0,0.15); max-height:360px; overflow:auto; z-index:3000!important; }
+
+    /* aspirational block highlight */
+    .aspirational { font-weight: 700; color: #0b5394; background: rgba(11,83,148,0.06); padding: 2px 6px; border-radius: 4px; display:inline-block; }
+
+    /* small helpers */
+    .select-row { gap: 8px; display:flex; align-items:center; }
+    .muted { color:#6c757d; font-size:.9rem; }
+
+  /* Floating action button that spans text */
+  .fab {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 4000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 20px;
+    border-radius: 28px; /* pill-shaped */
+    background: linear-gradient(135deg, #007bff, #0056d6);
+    color: #fff;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .fab .fab-label {
+    display: inline; /* Make sure label shows */
+  }
+
+    /* responsive layout */
+    .dashboard-grid { display:grid; grid-template-columns:1fr; gap:16px; align-items:start; }
+    .dashboard-grid.analytics-open { grid-template-columns:2fr 1fr; }
+    .analytics-panel { background:#fbfdff; border:1px solid #e6f0ff; border-radius:6px; padding:12px; display:none; min-height:60vh; }
+    .analytics-panel.visible { display:block; }
+    table.s-table-compressed td, table.s-table-compressed th { padding:.35rem .5rem; font-size:.88rem; }
+    @media (max-width:768px) { .dashboard-grid.analytics-open { grid-template-columns:1fr; } }
+  </style>
+  <!-- include Bootstrap CSS and JS in your base; this template assumes Bootstrap 5 -->
+</head>
+<body>
+
+<div class="container-fluid">
+
+  <!-- NOTE: I removed the in-content "DMMU Dashboard" header to avoid duplication with wrapper header.
+       Keep the wrapper/header title in dashboard.html so there's only one. -->
+
+  <div id="sDashboardGrid" class="dashboard-grid">
+
+    <!-- Left column -->
+    <div>
+      <h4 class="mb-3">Beneficiaries (District: {% if assigned_district %}{{ assigned_district }}{% else %}—{% endif %})</h4>
+
+      <!-- Step selectors -->
+      <div class="mb-3">
+        <div class="row g-2">
+          <div class="col-md-4">
+            <label class="form-label small">Block</label>
+            <select id="selBlock" class="form-select form-select-sm">
+              <option value="">Select Block</option>
+              {% for b in blocks %}
+                <option value="{{ b.block_name_en }}" {% if selected_block and selected_block|stringformat:"s" == b.block_name_en|stringformat:"s" %}selected{% endif %}>{{ b.block_name_en }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label small">Aspirational blocks</label>
+            <select id="selAspirational" class="form-select form-select-sm">
+              <option value="">Select Aspirational Block</option>
+              {% for ab in aspirational_blocks %}
+                <option value="{{ ab }}" {% if ab == asp_block %}selected{% endif %}>{{ ab }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-4">
+          </div>
+        </div>
+
+        <div class="mt-2 d-flex gap-2 align-items-center">
+          <input id="s_globalSearch" class="form-control form-control-sm" placeholder="Search block / SHG / Gram Panchayat / Village" style="max-width:420px;" value="{{ search_query }}">
+          <button id="s_searchBtn" class="btn btn-sm btn-outline-secondary">Search</button>
+          <button id="s_resetBtn" class="btn btn-sm btn-outline-warning" title="Reset filters and search">Reset</button>
+          <div class="ms-auto muted" id="asp_note" style="display:none;">Aspirational blocks are highlighted.</div>
+        </div>
+      </div>
+
+      <!-- Table (hidden until a block selection or defaults show_table) -->
+      <div id="s_table_wrapper" class="table-responsive custom-scroll mt-3" {% if not show_table %}style="display:none;"{% endif %}>
+        <table class="table table-bordered table-hover table-sm" id="s_beneficiariesTable" style="min-width:1200px;">
+          <thead class="table-dark">
+            <tr>
+              <th style="width:60px;"><div class="form-check"><input class="form-check-input" type="checkbox" id="s_selectAllRows"></div></th>
+              <th data-field="block" style="min-width:160px;"><span class="col-header">Block</span></th>
+              <th data-field="gram_panchayat" style="min-width:160px;"><span class="col-header">Gram Panchayat</span></th>
+              <th data-field="village" style="min-width:160px;"><span class="col-header">Village</span></th>
+              <th data-field="shg_name" style="min-width:200px;"><span class="col-header">SHG Name</span></th>
+              <th data-field="member_name" style="min-width:200px;"><span class="col-header">Member Name</span></th>
+              <th data-field="social_category" style="min-width:140px;"><span class="col-header">Social Category</span></th>
+              <th data-field="designation_in_shg_vo_clf" style="min-width:140px;"><span class="col-header">Designation</span></th>
+              <th data-field="gender" style="min-width:100px;"><span class="col-header">Gender</span></th>
+            </tr>
+
+            <!-- Filters row (values already come from beneficiaries_qs so they're block-scoped) -->
+            <tr>
+              <th></th>
+
+              <!-- Block filter: removed, already exists -->
+              <th></th>
+
+              <!-- Gram Panchayat -->
+              <th>
+                {% if groupable_values.gram_panchayat %}
+                <div class="dropdown w-100">
+                  <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" data-field="gram_panchayat" id="dd_gp" data-bs-toggle="dropdown">Filter</button>
+                  <div class="dropdown-menu p-2" style="min-width:220px;">
+                    <div class="dropdown-checkboxes">
+                      {% for v in groupable_values.gram_panchayat %}
+                        {% if v %}
+                          <div class="form-check"><input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="gram_panchayat" value="{{ v }}" id="gp_{{ forloop.counter }}"><label class="form-check-label" for="gp_{{ forloop.counter }}">{{ v }}</label></div>
+                        {% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between mt-2"><button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="gram_panchayat">Clear</button><button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="gram_panchayat">Apply</button></div>
+                  </div>
+                </div>
+                {% else %}<div class="text-muted small">—</div>{% endif %}
+              </th>
+
+              <!-- Village -->
+              <th>
+                {% if groupable_values.village %}
+                <div class="dropdown w-100">
+                  <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" data-field="village" id="dd_village" data-bs-toggle="dropdown">Filter</button>
+                  <div class="dropdown-menu p-2" style="min-width:220px;">
+                    <div class="dropdown-checkboxes">
+                      {% for v in groupable_values.village %}
+                        {% if v %}<div class="form-check"><input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="village" value="{{ v }}" id="vil_{{ forloop.counter }}"><label class="form-check-label" for="vil_{{ forloop.counter }}">{{ v }}</label></div>{% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between mt-2"><button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="village">Clear</button><button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="village">Apply</button></div>
+                  </div>
+                </div>
+                {% else %}<div class="text-muted small">—</div>{% endif %}
+              </th>
+
+              <!-- SHG Name -->
+              <th>
+                {% if groupable_values.shg_name %}
+                <div class="dropdown w-100">
+                  <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" data-field="shg_name" id="dd_shg" data-bs-toggle="dropdown">Filter</button>
+                  <div class="dropdown-menu p-2" style="min-width:220px;">
+                    <div class="dropdown-checkboxes">
+                      {% for v in groupable_values.shg_name %}
+                        {% if v %}<div class="form-check"><input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="shg_name" value="{{ v }}" id="shg_{{ forloop.counter }}"><label class="form-check-label" for="shg_{{ forloop.counter }}">{{ v }}</label></div>{% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between mt-2"><button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="shg_name">Clear</button><button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="shg_name">Apply</button></div>
+                  </div>
+                </div>
+                {% else %}<div class="text-muted small">—</div>{% endif %}
+              </th>
+
+              <!-- Member name: no filter -->
+              <th><div class="text-muted small">—</div></th>
+
+              <!-- Social Category -->
+              <th>
+                {% if groupable_values.social_category %}
+                <div class="dropdown w-100">
+                  <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" data-field="social_category" id="dd_social" data-bs-toggle="dropdown">Filter</button>
+                  <div class="dropdown-menu p-2" style="min-width:220px;">
+                    <div class="dropdown-checkboxes">
+                      {% for v in groupable_values.social_category %}
+                        {% if v %}<div class="form-check"><input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="social_category" value="{{ v }}" id="soc_{{ forloop.counter }}"><label class="form-check-label" for="soc_{{ forloop.counter }}">{{ v }}</label></div>{% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between mt-2"><button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="social_category">Clear</button><button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="social_category">Apply</button></div>
+                  </div>
+                </div>
+                {% else %}<div class="text-muted small">—</div>{% endif %}
+              </th>
+
+              <!-- Designation -->
+              <th>
+                {% if groupable_values.designation_in_shg_vo_clf %}
+                <div class="dropdown w-100">
+                  <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" data-field="designation_in_shg_vo_clf" id="dd_desig" data-bs-toggle="dropdown">Filter</button>
+                  <div class="dropdown-menu p-2" style="min-width:220px;">
+                    <div class="dropdown-checkboxes">
+                      {% for v in groupable_values.designation_in_shg_vo_clf %}
+                        {% if v %}<div class="form-check"><input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="designation_in_shg_vo_clf" value="{{ v }}" id="des_{{ forloop.counter }}"><label class="form-check-label" for="des_{{ forloop.counter }}">{{ v }}</label></div>{% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between mt-2"><button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="designation_in_shg_vo_clf">Clear</button><button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="designation_in_shg_vo_clf">Apply</button></div>
+                  </div>
+                </div>
+                {% else %}<div class="text-muted small">—</div>{% endif %}
+              </th>
+
+              <!-- Gender -->
+              <th>
+                {% if groupable_values.gender %}
+                <div class="dropdown w-100">
+                  <button class="btn btn-sm btn-light dropdown-toggle filter-btn w-100" type="button" data-field="gender" id="dd_gender" data-bs-toggle="dropdown">Filter</button>
+                  <div class="dropdown-menu p-2" style="min-width:220px;">
+                    <div class="dropdown-checkboxes">
+                      {% for v in groupable_values.gender %}
+                        {% if v %}<div class="form-check"><input class="form-check-input main-col-filter-checkbox" type="checkbox" data-field="gender" value="{{ v }}" id="gen_{{ forloop.counter }}"><label class="form-check-label" for="gen_{{ forloop.counter }}">{{ v }}</label></div>{% endif %}
+                      {% endfor %}
+                    </div>
+                    <div class="d-flex justify-content-between mt-2"><button type="button" class="btn btn-sm btn-outline-secondary main-dd-clear" data-field="gender">Clear</button><button type="button" class="btn btn-sm btn-primary main-dd-apply" data-field="gender">Apply</button></div>
+                  </div>
+                </div>
+                {% else %}<div class="text-muted small">—</div>{% endif %}
+              </th>
+
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for obj in page_obj %}
+              <tr class="clickable-row" data-id="{{ obj.id }}" title="Click to view details">
+                <td><div class="form-check"><input class="form-check-input s_row_select_checkbox" type="checkbox" data-id="{{ obj.id }}"></div></td>
+                <td>{{ obj.block.block_name_en|default_if_none:"" }}</td>
+                <td>{{ obj.gram_panchayat|default_if_none:"" }}</td>
+                <td>{{ obj.village|default_if_none:"" }}</td>
+                <td>{{ obj.shg_name|default_if_none:"" }}</td>
+                <td>{{ obj.member_name|default_if_none:"" }}</td>
+                <td>{{ obj.social_category|default_if_none:"" }}</td>
+                <td>{{ obj.designation_in_shg_vo_clf|default_if_none:"" }}</td>
+                <td>{{ obj.gender|default_if_none:"" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="9" class="text-center">No beneficiaries found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if show_table %}
+        <nav aria-label="Page navigation" class="mt-2">
+          <ul class="pagination justify-content-center align-items-center">
+            {% comment %} previous link preserves query params {% endcomment %}
+            {% if page_obj.has_previous %}
+              <li class="page-item">
+                <a class="page-link" href="?{% if selected_block %}block_name={{ selected_block }}&{% endif %}{% if asp_block %}asp_block={{ asp_block }}&{% endif %}page={{ page_obj.previous_page_number }}{% if sort_by %}&sort_by={{ sort_by }}{% endif %}{% if order %}&order={{ order }}{% endif %}">Previous</a>
+              </li>
+            {% else %}
+              <li class="page-item disabled"><span class="page-link">Previous</span></li>
+            {% endif %}
+
+            {% if page_window_start > 1 %}
+              <li class="page-item"><a class="page-link" href="?{% if selected_block %}block_name={{ selected_block }}&{% endif %}{% if asp_block %}asp_block={{ asp_block }}&{% endif %}page=1">1</a></li>
+              {% if page_window_start > 2 %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+              {% endif %}
+            {% endif %}
+
+            {% for num in page_window_start|get_range:page_window_end %}
+              {% if num == current_page %}
+                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+              {% else %}
+                <li class="page-item"><a class="page-link" href="?{% if selected_block %}block_name={{ selected_block }}&{% endif %}{% if asp_block %}asp_block={{ asp_block }}&{% endif %}page={{ num }}{% if sort_by %}&sort_by={{ sort_by }}{% endif %}{% if order %}&order={{ order }}{% endif %}">{{ num }}</a></li>
+              {% endif %}
+            {% endfor %}
+
+            {% if show_next_last_page_link %}
+              {% if show_next_ellipsis %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+              {% endif %}
+              <li class="page-item"><a class="page-link" href="?{% if selected_block %}block_name={{ selected_block }}&{% endif %}{% if asp_block %}asp_block={{ asp_block }}&{% endif %}page={{ total_pages }}">{{ total_pages }}</a></li>
+            {% endif %}
+
+            {% if page_obj.has_next %}
+              <li class="page-item">
+                <a class="page-link" href="?{% if selected_block %}block_name={{ selected_block }}&{% endif %}{% if asp_block %}asp_block={{ asp_block }}&{% endif %}page={{ page_obj.next_page_number }}{% if sort_by %}&sort_by={{ sort_by }}{% endif %}{% if order %}&order={{ order }}{% endif %}">Next</a>
+              </li>
+            {% else %}
+              <li class="page-item disabled"><span class="page-link">Next</span></li>
+            {% endif %}
+
+            <!-- Page jump box -->
+            <li class="ms-2 d-flex align-items-center">
+              <div class="input-group input-group-sm" style="width:160px;">
+                <input id="pageJumpInput" type="number" min="1" class="form-control form-control-sm" placeholder="Page #" value="{{ current_page }}">
+                <button id="pageJumpBtn" class="btn btn-sm btn-outline-primary" type="button">Go</button>
+              </div>
+              <div class="ms-2 muted small">of {{ total_pages }} ({{ beneficiaries_count }} rows)</div>
+            </li>
+          </ul>
+        </nav>
+      {% endif %}
+
+    </div> <!-- left column -->
+
+    <!-- Right: analytics panel -->
+    <aside id="s_analyticsPanel" class="analytics-panel" role="complementary" aria-hidden="true">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Analytics</strong>
+        <button id="s_hideAnalyticsBtn" class="btn btn-sm btn-outline-secondary">Hide</button>
+      </div>
+      <p class="text-muted small">DMMU quick stats</p>
+      <div style="height:280px;"><canvas id="s_chart1"></canvas></div>
+      <div style="height:280px; margin-top:12px;"><canvas id="s_chart2"></canvas></div>
+    </aside>
+
+  </div> <!-- dashboard-grid -->
+
+</div> <!-- container -->
+
+<!-- beneficiary detail modal -->
+<div class="modal fade" id="beneficiaryDetailModal" tabindex="-1" aria-labelledby="benefDetailLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="benefDetailLabel">Beneficiary details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="benefDetailBody">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- floating Training Requests button -->
+<a href="{% url 'dmmu_training_requests' %}" class="fab" title="Training requests">
+  <span class="fab-label">Pending Training Requests</span>
+</a>
+
+<!-- Chart.js (kept) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+/* ---------- Helpers ---------- */
+function qsToString(params) {
+  return params.toString();
+}
+function buildBaseParams() {
+  const params = new URLSearchParams(window.location.search || "");
+  // preserve selected block / aspirational when applying search/filters
+  const sB = document.getElementById("selBlock")?.value;
+  const sA = document.getElementById("selAspirational")?.value;
+  if (sB) params.set("block_name", sB); else params.delete("block_name");
+  if (sA) params.set("asp_block", sA); else params.delete("asp_block");
+  return params;
+}
+
+/* ---------- Chart initialization ---------- */
+let _s_chart1 = null, _s_chart2 = null;
+function initSCharts() {
+  try {
+    if (_s_chart1 && _s_chart1.destroy) { try{ _s_chart1.destroy(); }catch(e){} }
+    if (_s_chart2 && _s_chart2.destroy) { try{ _s_chart2.destroy(); }catch(e){} }
+    const labels = {{ chart_labels|safe }};
+    const data1 = {{ chart1|safe }};
+    const data2 = {{ chart2|safe }};
+    const c1 = document.getElementById('s_chart1');
+    if (c1) {
+      _s_chart1 = new Chart(c1.getContext('2d'), { type:'bar', data:{ labels: labels, datasets:[{ label:'Metric 1', data: data1 }] }, options:{ responsive:true, maintainAspectRatio:false }}); }
+    const c2 = document.getElementById('s_chart2');
+    if (c2) {
+      _s_chart2 = new Chart(c2.getContext('2d'), { type:'line', data:{ labels: labels, datasets:[{ label:'Metric 2', data: data2, fill:false }] }, options:{ responsive:true, maintainAspectRatio:false }}); }
+  } catch(e) { console.warn('initSCharts error', e); }
+}
+
+/* ---------- UI wiring ---------- */
+document.addEventListener('DOMContentLoaded', function(){
+  // Analytics toggle wiring
+  const toggleBtn = document.getElementById('s_toggleAnalyticsTop');
+  const hideBtn = document.getElementById('s_hideAnalyticsBtn');
+  const grid = document.getElementById('sDashboardGrid');
+  const panel = document.getElementById('s_analyticsPanel');
+  function showAnalytics(show) {
+    if (show) {
+      grid.classList.add('analytics-open');
+      panel.classList.add('visible');
+      panel.setAttribute('aria-hidden', 'false');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+    } else {
+      grid.classList.remove('analytics-open');
+      panel.classList.remove('visible');
+      panel.setAttribute('aria-hidden', 'true');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    }
+  }
+  if (toggleBtn) toggleBtn.addEventListener('click', function(){ showAnalytics(true); });
+  if (hideBtn) hideBtn.addEventListener('click', function(){ showAnalytics(false); });
+
+  // Block selector change reloads page so server updates table
+  document.getElementById('selBlock')?.addEventListener('change', function(){
+    const params = new URLSearchParams(window.location.search || '');
+    if (this.value) params.set('block_name', this.value); else params.delete('block_name');
+    params.delete('page');
+    window.location.search = params.toString();
+  });
+
+  // Aspirational selector updates URL
+  document.getElementById('selAspirational')?.addEventListener('change', function(){
+    const params = buildBaseParams();
+    if (this.value) params.set('asp_block', this.value); else params.delete('asp_block');
+    params.delete('page');
+    window.location.search = params.toString();
+  });
+
+  // Search
+  document.getElementById('s_searchBtn')?.addEventListener('click', function(){
+    const val = document.getElementById('s_globalSearch')?.value?.trim() || '';
+    const params = buildBaseParams();
+    if (val) params.set('search', val); else params.delete('search');
+    params.delete('page');
+    window.location.search = params.toString();
+  });
+
+  // Reset button: clear search, filters, block/asp_block, sort, page and reload
+  document.getElementById('s_resetBtn')?.addEventListener('click', function(){
+    // Clear UI controls immediately
+    const searchInput = document.getElementById('s_globalSearch');
+    if (searchInput) searchInput.value = '';
+
+    const selBlock = document.getElementById('selBlock');
+    if (selBlock) selBlock.value = '';
+
+    const selAspirational = document.getElementById('selAspirational');
+    if (selAspirational) selAspirational.value = '';
+
+    // uncheck any column filter checkboxes
+    document.querySelectorAll('.main-col-filter-checkbox').forEach(cb => { cb.checked = false; });
+
+    // Build base params and remove table-related keys
+    const params = new URLSearchParams(window.location.search || "");
+    // keys to remove (table state)
+    const keysToRemove = ['search', 'page', 'sort_by', 'order', 'block_name', 'asp_block'];
+    // also remove any filter_* params
+    for (const k of Array.from(params.keys())) {
+      if (k.startsWith('filter_')) keysToRemove.push(k);
+    }
+    keysToRemove.forEach(k => params.delete(k));
+
+    // If you want to preserve some params (e.g., a district or user state) add them back here.
+    // e.g., if there's district_id you want to preserve: const district = (new URLSearchParams(window.location.search)).get('district_id'); if (district) params.set('district_id', district);
+
+    // Ensure page is reset to 1
+    params.set('page', 1);
+
+    // Navigate to the cleaned URL
+    window.location.search = params.toString();
+  });
+
+
+  // header sorting: clickable headers toggle simple asc sort
+  document.querySelectorAll('#s_beneficiariesTable thead th[data-field]').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function(e){
+      if (e.target.closest('.dropdown') || e.target.closest('.dropdown-menu') || e.target.classList.contains('main-col-filter-checkbox')) return;
+      const field = th.dataset.field;
+      const params = buildBaseParams();
+      const curSort = "{{ sort_by|default:'' }}";
+      const curOrder = "{{ order|default:'asc' }}";
+      let newOrder = 'asc';
+      if (curSort === field && curOrder === 'asc') newOrder = 'desc';
+      params.set('sort_by', field);
+      params.set('order', newOrder);
+      params.set('page', 1);
+      window.location.search = params.toString();
+    });
+  });
+
+  // dropdown apply / clear
+  document.querySelectorAll('.main-dd-apply').forEach(btn => {
+    btn.addEventListener('click', function(){
+      const field = this.dataset.field;
+      const checked = Array.from(document.querySelectorAll(`.main-col-filter-checkbox[data-field="${field}"]:checked`)).map(x=>x.value);
+      const params = buildBaseParams();
+      params.delete('page');
+      params.delete('filter_' + field);
+      if (checked.length) params.set('filter_' + field, checked.join(','));
+      window.location.search = params.toString();
+    });
+  });
+  document.querySelectorAll('.main-dd-clear').forEach(btn => {
+    btn.addEventListener('click', function(){
+      const field = this.dataset.field;
+      document.querySelectorAll(`.main-col-filter-checkbox[data-field="${field}"]`).forEach(cb => cb.checked = false);
+      const params = buildBaseParams();
+      params.delete('filter_' + field);
+      params.delete('page');
+      window.location.search = params.toString();
+    });
+  });
+
+  // select all checkbox
+  document.getElementById('s_selectAllRows')?.addEventListener('change', function(){
+    const checked = !!this.checked;
+    document.querySelectorAll('.s_row_select_checkbox').forEach(cb => cb.checked = checked);
+  });
+
+  // clickable rows: fetch beneficiary detail HTML and show in modal
+  document.querySelectorAll('.clickable-row').forEach(row => {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', function(e){
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.closest('input'))) return;
+      const id = this.dataset.id;
+      if (!id) return;
+      const url = "{% url 'bmmu_beneficiary_detail' 0 %}".replace('/0/', '/' + id + '/');
+      const modal = new bootstrap.Modal(document.getElementById('beneficiaryDetailModal'));
+      const body = document.getElementById('benefDetailBody');
+      body.innerHTML = 'Loading...';
+      modal.show();
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+        .then(resp => {
+          if (!resp.ok) throw new Error('Failed to load detail');
+          return resp.text();
+        })
+        .then(html => { body.innerHTML = html; })
+        .catch(err => { body.innerHTML = '<div class="alert alert-danger">Failed to load details.</div>'; console.error(err); });
+    });
+  });
+
+  // show aspirational note if present
+  const aspir = {{ aspirational_blocks|length|default:0 }};
+  if (aspir && aspir > 0) {
+    document.getElementById('asp_note').style.display = 'block';
+  }
+
+  // Page jump behaviour
+  const pageJumpBtn = document.getElementById('pageJumpBtn');
+  const pageJumpInput = document.getElementById('pageJumpInput');
+  const TOTAL_PAGES = parseInt("{{ total_pages|default:0 }}", 10) || 0;
+  if (pageJumpBtn && pageJumpInput) {
+    pageJumpBtn.addEventListener('click', function(){
+      let val = parseInt(pageJumpInput.value || '0', 10);
+      if (isNaN(val) || val < 1) val = 1;
+      if (TOTAL_PAGES && val > TOTAL_PAGES) val = TOTAL_PAGES;
+      const params = buildBaseParams();
+      params.set('page', val);
+      window.location.search = params.toString();
+    });
+    // also allow Enter key in input
+    pageJumpInput.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') { pageJumpBtn.click(); }
+    });
+  }
+
+  // initialize charts
+  try { initSCharts(); } catch(e) {}
+});
+</script>
+
+</body>
+</html>

@@ -63,3 +63,19 @@ def get_item(dictionary, key):
     if not dictionary:
         return None
     return dictionary.get(key)
+
+
+@register.filter
+def get_range(start, end):
+    """
+    Usage: {% for i in page_window_start|get_range:page_window_end %}...
+    Returns a Python range(start, end+1).
+    """
+    try:
+        s = int(start)
+        e = int(end)
+        if s > e:
+            return range(0)   # empty
+        return range(s, e + 1)
+    except Exception:
+        return range(0)

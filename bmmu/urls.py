@@ -60,6 +60,12 @@ urlpatterns = [
     path('smmu/requests/', views.smmu_training_requests, name='smmu_training_requests'),
     path('smmu/request/<int:batch_id>/', views.smmu_request_detail, name='smmu_request_detail'),
     path('api/districts/', views.api_districts_for_mandal, name='api_districts_for_mandal'),
+
+    # DMMU URLs
+    path('dmmu/dashboard/', views.dmmu_dashboard, name='dmmu_dashboard'),
+    path('dmmu/requests/', views.dmmu_training_requests, name='dmmu_training_requests'),
+    path('dmmu/request/<int:batch_id>/', views.dmmu_request_detail, name='dmmu_request_detail'),
+
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

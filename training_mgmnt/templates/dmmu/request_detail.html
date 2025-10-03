@@ -1,0 +1,141 @@
+{# smmu/request_detail.html - fragment #}
+{% load custom_tags %}
+<h4>Request: {{ batch.code|default:batch.id }}</h4>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <p><strong>Training:</strong> {{ batch.training_plan.training_name }}</p>
+    <p><strong>Theme:</strong> {{ batch.training_plan.theme }}</p>
+    <p><strong>Partner:</strong> {% if batch.partner %}{{ batch.partner.name }}{% else %}Not assigned{% endif %}</p>
+
+    <hr>
+    <h6>Centre & Dates</h6>
+    <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
+    <p><strong>Partner Proposed Centre:</strong> {{ batch.centre_proposed|default:"(not proposed)" }}</p>
+    <p><strong>Start:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} &nbsp;
+       <strong>End:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
+
+    {# Centre submissions preview (uses 'submissions' from view) #}
+    <div class="mb-3">
+      <h6>Partner Centre Submissions</h6>
+      {% if submissions %}
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered">
+            <thead class="table-light">
+              <tr><th>Uploaded</th><th>Category</th><th>Notes</th><th>File</th></tr>
+            </thead>
+            <tbody>
+              {% for s in submissions %}
+                <tr>
+                  <td>{{ s.uploaded_on|date:"Y-m-d H:i" }}</td>
+                  <td>{{ s.get_category_display|default:s.category }}</td>
+                  <td>{{ s.notes|truncatechars:80 }}</td>
+                  <td>
+                    {% if s.file %}
+                      <a href="{{ s.file.url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Open</a>
+                    {% else %}
+                      &mdash;
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted">No centre submissions found for this partner.</div>
+      {% endif %}
+    </div>
+
+    <hr>
+    <h6>Assigned Trainers</h6>
+
+    {# Trainers table to match partner view #}
+    {% if batch.trainers.exists %}
+      <div class="table-responsive">
+        <table class="table table-striped table-bordered">
+          <thead class="table-dark">
+            <tr>
+              <th>Name</th>
+              <th>Certificate No</th>
+              <th>Module</th>
+              <th>Success Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in batch.trainers.all %}
+              <tr>
+                <td>
+                  {% if t.full_name %}
+                    {{ t.full_name }}
+                  {% elif t.get_full_name %}
+                    {{ t.get_full_name }}
+                  {% else %}
+                    {{ t.username }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% with certnum=trainer_cert_map|get_item:t.id %}
+                    {% if certnum %}
+                      {{ certnum }}
+                    {% else %}
+                      &mdash;
+                    {% endif %}
+                  {% endwith %}
+                </td>
+                <td>{% if t.module %}{{ t.module }}{% else %}{{ t.skills|default:"—" }}{% endif %}</td>
+                <td>{% if t.success_rate is not None %}{{ t.success_rate }}%{% else %}&mdash;{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div><em>No trainers assigned yet.</em></div>
+    {% endif %}
+
+    <hr>
+    <h6>Participants</h6>
+
+    {# Participants table to match partner view #}
+    {% if batch.beneficiaries.exists %}
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>SHG Name</th>
+              <th>Member Name</th>
+              <th>Age</th>
+              <th>Social Category</th>
+              <th>Religion</th>
+              <th>Mobile Number</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in beneficiaries %}
+              <tr>
+                <td>{{ p.shg_name|default:"—" }}</td>
+                <td>{{ p.member_name|default:"—" }}</td>
+                <td>{% if p.age %}{{ p.age }}{% else %}&mdash;{% endif %}</td>
+                <td>{{ p.social_category|default:"—" }}</td>
+                <td>{{ p.religion|default:"—" }}</td>
+                <td>{{ p.mobile_number|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div><em>No participants assigned.</em></div>
+    {% endif %}
+
+    <hr>
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" name="action" value="approve" class="btn btn-success">Approve</button>
+      <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+      <a href="{% url 'smmu_training_requests' %}" class="btn btn-secondary">Back</a>
+    </form>
+
+  </div>
+</div>

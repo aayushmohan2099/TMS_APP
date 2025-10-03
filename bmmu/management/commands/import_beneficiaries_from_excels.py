@@ -2,7 +2,8 @@ import os
 import re
 import math
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Dict, List
+from contextlib import contextmanager
 
 from django.core.management.base import BaseCommand
 from django.db import transaction, IntegrityError
@@ -52,7 +53,6 @@ HEADER_MAP = {
     "Account Opening Date": "account_opening_date",
     "Account Type": "account_type",
     "Mobile No.": "mobile_no",
-    "Aadhaar Number": "aadhaar_no",
     "Aadhaar KYC": "aadhar_kyc",
     "eKYC": "ekyc_status",
     "Cadres Role": "cadres_role",
@@ -75,93 +75,59 @@ HEADER_MAP = {
     "Migrated/LokOS": "member_type",
 }
 
-# helper to normalize district/block names for tolerant matching
+# ---------- helpers ----------
+
 def _normalize_name(s: Optional[str]) -> str:
+    """Normalize text for tolerant matching: uppercase, remove punctuation/spaces."""
     if s is None:
         return ""
     s = str(s).strip().upper()
-    # remove punctuation and multiple spaces
     s = re.sub(r'\s+', ' ', s)
-    # remove non-alphanumeric for robust comparison
     return re.sub(r'[^0-9A-Z]', '', s)
 
-def _find_district_by_name(name: str) -> Optional[District]:
-    if not name or not name.strip():
-        return None
-    # try exact case-insensitive first
-    q = District.objects.filter(district_name_en__iexact=name.strip())
-    if q.exists():
-        return q.first()
-    # fallback normalized lookup
-    norm = _normalize_name(name)
-    # build a normalized map lookup (cache could be added; but dataset small)
-    for d in District.objects.all():
-        if _normalize_name(d.district_name_en) == norm:
-            return d
-    # substring fallback
-    for d in District.objects.all():
-        if norm in _normalize_name(d.district_name_en) or _normalize_name(d.district_name_en) in norm:
-            return d
-    return None
-
-def _find_block_by_name_and_district(name: str, district: Optional[District]) -> Optional[Block]:
-    if not name or not name.strip():
-        return None
-    if district:
-        q = Block.objects.filter(block_name_en__iexact=name.strip(), district=district)
-        if q.exists():
-            return q.first()
-        # fallback normalized
-        norm = _normalize_name(name)
-        for b in Block.objects.filter(district=district):
-            if _normalize_name(b.block_name_en) == norm:
-                return b
-        for b in Block.objects.filter(district=district):
-            if norm in _normalize_name(b.block_name_en) or _normalize_name(b.block_name_en) in norm:
-                return b
-    else:
-        # no district given: match globally
-        q = Block.objects.filter(block_name_en__iexact=name.strip())
-        if q.exists():
-            return q.first()
-        norm = _normalize_name(name)
-        for b in Block.objects.all():
-            if _normalize_name(b.block_name_en) == norm:
-                return b
-        for b in Block.objects.all():
-            if norm in _normalize_name(b.block_name_en) or _normalize_name(b.block_name_en) in norm:
-                return b
-    return None
+@contextmanager
+def _noop_context():
+    """Context manager that does nothing (used when not applying changes)."""
+    yield
 
 def _to_date_safe(value):
     """
     Accept strings, datetimes, pandas Timestamp, numeric excel dates etc.
     Returns python date or None.
     """
-    if value is None or (isinstance(value, float) and math.isnan(value)):
+    if value is None:
         return None
-    # If pandas.Timestamp or datetime-like
+    # pandas often gives numpy.nan floats
     try:
-        # parse_date handles YYYY-MM-DD etc; fallback to pandas
-        if hasattr(value, "date"):
-            return value.date()
-        s = str(value).strip()
-        if not s:
-            return None
-        # Try django parse_date first
-        parsed = parse_date(s)
-        if parsed:
-            return parsed
-        # fallback: pandas
-        try:
-            ts = pd.to_datetime(s, errors='coerce')
-            if pd.isna(ts):
-                return None
-            return ts.date()
-        except Exception:
+        if isinstance(value, float) and math.isnan(value):
             return None
     except Exception:
+        pass
+    # pandas.Timestamp / datetime-like
+    try:
+        if hasattr(value, "date") and not isinstance(value, str):
+            # pandas.Timestamp has .date()
+            return value.date()
+    except Exception:
+        pass
+    # string-ish
+    s = str(value).strip()
+    if not s:
         return None
+    # try django parse_date first (YYYY-MM-DD)
+    parsed = parse_date(s)
+    if parsed:
+        return parsed
+    # fallback to pandas to_datetime
+    try:
+        ts = pd.to_datetime(s, errors='coerce', dayfirst=True)
+        if pd.isna(ts):
+            return None
+        return ts.date()
+    except Exception:
+        return None
+
+# ---------- command ----------
 
 class Command(BaseCommand):
     help = "Import Beneficiary rows from multiple Excel files (headers must match the expected template)."
@@ -206,6 +172,12 @@ class Command(BaseCommand):
         skip_header_check = options["skip_header_check"]
         create_missing_loc = options["create_missing_loc"]
 
+        if create_missing_loc:
+            self.stdout.write(self.style.WARNING(
+                "NOTE: --create-missing-loc will attempt to create District/Block rows. "
+                "If your models require explicit primary keys (district_id / block_id), automatic creation may fail."
+            ))
+
         p = Path(directory)
         if not p.exists() or not p.is_dir():
             self.stdout.write(self.style.ERROR(f"Directory not found: {directory}"))
@@ -215,6 +187,26 @@ class Command(BaseCommand):
         if not excel_files:
             self.stdout.write(self.style.ERROR("No .xlsx/.xls files found in the directory."))
             return
+
+        # Build caches for fast lookups
+        district_cache: Dict[str, District] = {}
+        try:
+            for d in District.objects.all():
+                key = _normalize_name(d.district_name_en)
+                if key:
+                    district_cache[key] = d
+        except Exception:
+            # if DB empty or model not migrated, keep cache empty
+            district_cache = {}
+
+        # block cache: mapping district.pk -> list of Block objects
+        block_cache_by_did: Dict[Optional[int], List[Block]] = {}
+        try:
+            for b in Block.objects.select_related('district').all():
+                did = b.district.pk if getattr(b, 'district', None) else None
+                block_cache_by_did.setdefault(did, []).append(b)
+        except Exception:
+            block_cache_by_did = {}
 
         total_created = 0
         total_updated = 0
@@ -226,149 +218,223 @@ class Command(BaseCommand):
         for file_path in excel_files:
             self.stdout.write(self.style.NOTICE(f"Processing file: {file_path.name}"))
             try:
-                # read into pandas dataframe; preserve raw values
                 df = pd.read_excel(file_path, dtype=object)
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"Failed to read {file_path.name}: {e}"))
                 total_errors += 1
                 continue
 
-            # Normalize column names: strip spaces
-            df.columns = [str(c).strip() for c in df.columns]
+            # Normalize column names: keep original but build tolerant mapping
+            original_columns = [str(c) for c in df.columns]
+            df.columns = [str(c).strip() for c in original_columns]
+            norm_col_map = {c.strip().upper(): c for c in df.columns}
 
-            # Validate headers (optional)
-            missing_headers = [h for h in HEADER_MAP.keys() if h not in df.columns]
+            # Validate headers (optional) using tolerant matching
+            missing_headers = []
+            for expected in HEADER_MAP.keys():
+                if expected not in df.columns and expected.strip().upper() not in norm_col_map:
+                    missing_headers.append(expected)
             if missing_headers and not skip_header_check:
                 self.stdout.write(self.style.ERROR(f"Missing expected headers in {file_path.name}: {missing_headers}"))
                 total_errors += 1
                 continue
 
-            # Iterate rows
             processed = 0
-            for idx, raw_row in df.iterrows():
-                row_number += 1
-                if limit and processed >= limit:
-                    break
-                processed += 1
 
-                # build field dict
-                beneficiary_data = {}
-                district_name = None
-                block_name = None
+            # choose atomic context per file when applying changes
+            file_atomic = transaction.atomic() if apply_changes else _noop_context()
+            try:
+                with file_atomic:
+                    for idx, raw_row in df.iterrows():
+                        row_number += 1
+                        if limit and processed >= limit:
+                            break
+                        processed += 1
 
-                for col_header, model_field in HEADER_MAP.items():
-                    if col_header not in df.columns:
-                        continue
-                    raw_val = raw_row.get(col_header, None)
-                    # strip strings
-                    if isinstance(raw_val, str):
-                        val = raw_val.strip()
-                    else:
-                        val = raw_val
+                        # build field dict
+                        beneficiary_data = {}
+                        district_name = None
+                        block_name = None
 
-                    if model_field == "district":
-                        district_name = val
-                    elif model_field == "block":
-                        block_name = val
-                    elif model_field in ("date_of_birth", "date_of_joining_shg", "date_of_formation", "account_opening_date", "date_of_approval", "inactive_date"):
-                        beneficiary_data[model_field] = _to_date_safe(val)
-                    else:
-                        beneficiary_data[model_field] = (str(val).strip() if (val is not None and not (isinstance(val, float) and math.isnan(val))) else None)
+                        # iterate expected headers
+                        for col_header, model_field in HEADER_MAP.items():
+                            # tolerate slightly different column name by using norm_col_map
+                            if col_header in df.columns:
+                                actual_col = col_header
+                            else:
+                                actual_col = norm_col_map.get(col_header.strip().upper())
+                            if not actual_col or actual_col not in df.columns:
+                                continue
+                            raw_val = raw_row.get(actual_col, None)
 
-                # Resolve district & block FKs
-                district_obj = None
-                block_obj = None
-                if district_name:
-                    district_obj = _find_district_by_name(district_name)
-                    if not district_obj and create_missing_loc:
-                        # Attempt to create (only if model allows). WARNING: District model in your code has district_id PK (BigInteger) so creating without PK may fail.
-                        try:
-                            district_obj, _ = District.objects.get_or_create(district_name_en=district_name.strip())
-                            self.stdout.write(self.style.WARNING(f"Created District record for '{district_name}' (id={district_obj.pk})."))
-                        except Exception as e:
-                            self.stdout.write(self.style.ERROR(f"Could not create District '{district_name}': {e}"))
-                            district_obj = None
+                            # normalize missing / nan and trim strings
+                            if raw_val is None:
+                                val = None
+                            else:
+                                try:
+                                    if isinstance(raw_val, float) and math.isnan(raw_val):
+                                        val = None
+                                    else:
+                                        val = raw_val
+                                except Exception:
+                                    val = raw_val
+                            if isinstance(val, str):
+                                val = val.strip() or None
 
-                if block_name:
-                    block_obj = _find_block_by_name_and_district(block_name, district_obj)
-                    if not block_obj and create_missing_loc:
-                        try:
-                            # If district_obj exists, link to it
-                            kwargs = {"block_name_en": block_name.strip()}
-                            if district_obj:
-                                kwargs["district"] = district_obj
-                            block_obj, _ = Block.objects.get_or_create(**kwargs)
-                            self.stdout.write(self.style.WARNING(f"Created Block record for '{block_name}' (id={block_obj.pk})."))
-                        except Exception as e:
-                            self.stdout.write(self.style.ERROR(f"Could not create Block '{block_name}': {e}"))
-                            block_obj = None
+                            if model_field == "district":
+                                district_name = val
+                            elif model_field == "block":
+                                block_name = val
+                            elif model_field in ("date_of_birth", "date_of_joining_shg", "date_of_formation", "account_opening_date", "date_of_approval", "inactive_date"):
+                                beneficiary_data[model_field] = _to_date_safe(val)
+                            else:
+                                beneficiary_data[model_field] = (str(val).strip() if (val is not None and not (isinstance(val, float) and math.isnan(val))) else None)
 
-                # attach to data dict
-                if district_obj:
-                    beneficiary_data["district"] = district_obj
-                else:
-                    beneficiary_data["district"] = None
+                        # Resolve district & block FKs (using caches)
+                        district_obj = None
+                        block_obj = None
+                        if district_name:
+                            key = _normalize_name(district_name)
+                            district_obj = district_cache.get(key)
+                            if not district_obj:
+                                # fallback to DB case-insensitive lookup
+                                q = District.objects.filter(district_name_en__iexact=(district_name or '').strip())
+                                if q.exists():
+                                    district_obj = q.first()
+                                    district_cache[_normalize_name(district_obj.district_name_en)] = district_obj
 
-                if block_obj:
-                    beneficiary_data["block"] = block_obj
-                else:
-                    beneficiary_data["block"] = None
-
-                # Duplicate checks: prefer member_code then aadhaar
-                member_code = beneficiary_data.get("member_code") or None
-                aadhaar = beneficiary_data.get("aadhaar_no") or None
-                existing = None
-                if member_code:
-                    existing = Beneficiary.objects.filter(member_code=member_code).first()
-                if not existing and aadhaar:
-                    existing = Beneficiary.objects.filter(aadhaar_no=aadhaar).first()
-
-                try:
-                    if existing:
-                        if update_existing:
-                            # update allowed: only update fields that are provided (not None)
-                            for k, v in beneficiary_data.items():
-                                # skip PK
-                                if k == "id":
-                                    continue
-                                # set if v is not None
-                                if v is not None:
-                                    setattr(existing, k, v)
-                            if apply_changes:
-                                existing.save()
-                            total_updated += 1
-                            self.stdout.write(f"Updated existing Beneficiary (member_code={existing.member_code or 'N/A'}, aadhaar={existing.aadhaar_no or 'N/A'})")
-                        else:
-                            total_skipped += 1
-                            self.stdout.write(self.style.NOTICE(f"Skipped existing Beneficiary (member_code={existing.member_code or 'N/A'}). Use --update-existing to update."))
-                        continue
-                    else:
-                        # Create new Beneficiary instance but do not save if dry-run
-                        b = Beneficiary(**{k: v for k, v in beneficiary_data.items() if k not in ("district", "block")})
-                        # assign FK objects explicitly
-                        if beneficiary_data.get("district"):
-                            b.district = beneficiary_data["district"]
-                        if beneficiary_data.get("block"):
-                            b.block = beneficiary_data["block"]
-
-                        if apply_changes:
+                        if district_obj is None and district_name and create_missing_loc:
+                            # attempt to create district (may fail if PK required)
                             try:
-                                with transaction.atomic():
-                                    b.save()
-                                total_created += 1
-                                self.stdout.write(self.style.SUCCESS(f"Created Beneficiary: member_code={b.member_code or 'N/A'} aadhaar={b.aadhaar_no or 'N/A'}"))
-                            except IntegrityError as ie:
-                                total_errors += 1
-                                self.stdout.write(self.style.ERROR(f"IntegrityError creating row (member_code={member_code}): {ie}"))
+                                district_obj = District.objects.create(district_name_en=district_name.strip())
+                                district_cache[_normalize_name(district_obj.district_name_en)] = district_obj
+                                self.stdout.write(self.style.WARNING(f"Created District record for '{district_name}' (id={district_obj.pk})."))
                             except Exception as e:
-                                total_errors += 1
-                                self.stdout.write(self.style.ERROR(f"Error creating Beneficiary (member_code={member_code}): {e}"))
+                                self.stdout.write(self.style.ERROR(f"Could not create District '{district_name}': {e}"))
+                                district_obj = None
+
+                        # Block resolve (prefer district-scoped)
+                        if block_name:
+                            if district_obj:
+                                blocks_for_did = block_cache_by_did.get(district_obj.pk, [])
+                                # try exact match
+                                found = None
+                                for b in blocks_for_did:
+                                    if b.block_name_en and b.block_name_en.strip().lower() == str(block_name).strip().lower():
+                                        found = b
+                                        break
+                                if not found:
+                                    norm = _normalize_name(block_name)
+                                    for b in blocks_for_did:
+                                        if _normalize_name(b.block_name_en) == norm:
+                                            found = b
+                                            break
+                                if not found:
+                                    # fallback DB lookup
+                                    q = Block.objects.filter(block_name_en__iexact=(block_name or '').strip(), district=district_obj)
+                                    if q.exists():
+                                        found = q.first()
+                                if found:
+                                    block_obj = found
+                                    block_cache_by_did.setdefault(district_obj.pk, []).append(found)
+                            else:
+                                # global match
+                                global_found = None
+                                q = Block.objects.filter(block_name_en__iexact=(block_name or '').strip())
+                                if q.exists():
+                                    global_found = q.first()
+                                if not global_found:
+                                    # try normalized scan of cache
+                                    for did, blist in block_cache_by_did.items():
+                                        for b in blist:
+                                            if _normalize_name(b.block_name_en) == _normalize_name(block_name):
+                                                global_found = b
+                                                break
+                                        if global_found:
+                                            break
+                                if global_found:
+                                    block_obj = global_found
+
+                        if block_obj is None and block_name and create_missing_loc:
+                            try:
+                                kwargs = {"block_name_en": block_name.strip()}
+                                if district_obj:
+                                    kwargs["district"] = district_obj
+                                block_obj, created = Block.objects.get_or_create(**kwargs)
+                                block_cache_by_did.setdefault(block_obj.district.pk if block_obj.district else None, []).append(block_obj)
+                                self.stdout.write(self.style.WARNING(f"Created Block record for '{block_name}' (id={block_obj.pk})."))
+                            except Exception as e:
+                                self.stdout.write(self.style.ERROR(f"Could not create Block '{block_name}': {e}"))
+                                block_obj = None
+
+                        # attach to data dict
+                        if district_obj:
+                            beneficiary_data["district"] = district_obj
                         else:
-                            total_created += 1
-                            self.stdout.write(f"[DRY RUN] Would create Beneficiary: member_code={member_code or 'N/A'} aadhaar={aadhaar or 'N/A'}")
-                except Exception as e:
-                    total_errors += 1
-                    self.stdout.write(self.style.ERROR(f"Unhandled error for row {row_number}: {e}"))
+                            beneficiary_data["district"] = None
+
+                        if block_obj:
+                            beneficiary_data["block"] = block_obj
+                        else:
+                            beneficiary_data["block"] = None
+
+                        # Duplicate checks: prefer member_code then aadhaar
+                        member_code = beneficiary_data.get("member_code") or None
+                        aadhaar = beneficiary_data.get("aadhaar_no") or None
+                        existing = None
+                        if member_code:
+                            existing = Beneficiary.objects.filter(member_code=member_code).first()
+                        if not existing and aadhaar:
+                            existing = Beneficiary.objects.filter(aadhaar_no=aadhaar).first()
+
+                        try:
+                            if existing:
+                                if update_existing:
+                                    # update allowed: only update fields that are provided (not None)
+                                    for k, v in beneficiary_data.items():
+                                        if k == "id":
+                                            continue
+                                        if v is not None:
+                                            setattr(existing, k, v)
+                                    if apply_changes:
+                                        existing.save()
+                                    total_updated += 1
+                                    self.stdout.write(f"Updated existing Beneficiary (member_code={existing.member_code or 'N/A'}, aadhaar={existing.aadhaar_no or 'N/A'})")
+                                else:
+                                    total_skipped += 1
+                                    self.stdout.write(self.style.NOTICE(f"Skipped existing Beneficiary (member_code={existing.member_code or 'N/A'}). Use --update-existing to update."))
+                                continue
+                            else:
+                                # Create new Beneficiary instance but do not save if dry-run
+                                b = Beneficiary(**{k: v for k, v in beneficiary_data.items() if k not in ("district", "block")})
+                                if beneficiary_data.get("district"):
+                                    b.district = beneficiary_data["district"]
+                                if beneficiary_data.get("block"):
+                                    b.block = beneficiary_data["block"]
+
+                                if apply_changes:
+                                    try:
+                                        with transaction.atomic():
+                                            b.save()
+                                        total_created += 1
+                                        self.stdout.write(self.style.SUCCESS(f"Created Beneficiary: member_code={b.member_code or 'N/A'} aadhaar={b.aadhaar_no or 'N/A'}"))
+                                    except IntegrityError as ie:
+                                        total_errors += 1
+                                        self.stdout.write(self.style.ERROR(f"IntegrityError creating row (member_code={member_code}): {ie}"))
+                                    except Exception as e:
+                                        total_errors += 1
+                                        self.stdout.write(self.style.ERROR(f"Error creating Beneficiary (member_code={member_code}): {e}"))
+                                else:
+                                    total_created += 1
+                                    self.stdout.write(f"[DRY RUN] Would create Beneficiary: member_code={member_code or 'N/A'} aadhaar={aadhaar or 'N/A'}")
+                        except Exception as e:
+                            total_errors += 1
+                            self.stdout.write(self.style.ERROR(f"Unhandled error for row {row_number}: {e}"))
+                # end with file_atomic
+            except Exception as file_exc:
+                total_errors += 1
+                self.stdout.write(self.style.ERROR(f"Fatal error when processing file {file_path.name}: {file_exc}"))
+                continue
 
             self.stdout.write(self.style.NOTICE(f"Finished file {file_path.name}: processed {processed} rows."))
 
@@ -384,4 +450,3 @@ class Command(BaseCommand):
 
         if not apply_changes:
             self.stdout.write(self.style.WARNING("DRY RUN finished. Run with --apply to actually write records to the database."))
-

@@ -223,6 +223,10 @@ def dashboard(request):
         default_content = render_to_string("bmmu_dashboard.html", context, request=request)
         return render(request, "dashboard.html", {"user": request.user, "default_content": default_content})
 
+    # DMMU: redirect to dmmu fragment
+    if user_role == "dmmu":
+        return redirect("dmmu_dashboard")
+
     # SMMU: render SMMU fragment into wrapper
     if user_role == "smmu":
         # Reuse smmu_dashboard view logic to build context (keep parity)
@@ -2133,6 +2137,351 @@ def smmu_request_detail(request, batch_id):
         'today': today,
         'trainer_cert_map': trainer_cert_map,        
 
+    }, request=request)
+
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
+
+@login_required
+def dmmu_dashboard(request):
+    if getattr(request.user, "role", "").lower() != "dmmu":
+        return HttpResponseForbidden("🚫 Not authorized for this dashboard.")
+
+    # Charts (same as SMMU)
+    chart1 = [random.randint(0, 100) for _ in range(10)]
+    chart2 = [random.randint(0, 100) for _ in range(10)]
+    chart_labels = [f"Metric {i+1}" for i in range(10)]
+
+    # Assigned district
+    assigned_district = None
+    try:
+        from .models import DmmuDistrictAssignment
+        assignment = DmmuDistrictAssignment.objects.filter(user=request.user).select_related('district').first()
+        if assignment:
+            assigned_district = assignment.district
+    except Exception:
+        assigned_district = None
+
+    # Blocks dropdown (for UI)
+    blocks = list(Block.objects.filter(district=assigned_district).order_by("block_name_en")) if assigned_district else []
+
+    # aspirational blocks set
+    aspirational_blocks = set()
+    if assigned_district:
+        aspirational_blocks = set(Block.objects.filter(district=assigned_district, is_aspirational=True).values_list("block_name_en", flat=True))
+
+    # Selected block and aspirational block params from GET
+    selected_block_name = request.GET.get("block_name") or None
+    asp_block_name = request.GET.get("asp_block") or None
+
+    selected_block_obj = None
+    if selected_block_name and assigned_district:
+        selected_block_obj = Block.objects.filter(district=assigned_district, block_name_en__iexact=selected_block_name).first()
+
+    # Build base queryset restricted to assigned district
+    beneficiaries_qs = Beneficiary.objects.none()
+    show_table = False
+    if assigned_district:
+        beneficiaries_qs = Beneficiary.objects.filter(district=assigned_district).select_related("district", "block")
+        show_table = True
+
+    # Apply block filters (selected block OR aspirational block if provided)
+    # Priority: explicit block_name (selBlock) overrides aspirational selection.
+    if show_table and selected_block_obj:
+        beneficiaries_qs = beneficiaries_qs.filter(block__block_name_en__iexact=selected_block_obj.block_name_en)
+    elif show_table and asp_block_name:
+        # Filter by aspirational block name (only those blocks which are aspirational)
+        beneficiaries_qs = beneficiaries_qs.filter(block__block_name_en__iexact=asp_block_name, block__is_aspirational=True)
+
+    # Search
+    from django.db.models import Q
+    q = request.GET.get("search", "").strip()
+    if q and show_table:
+        qobj = Q()
+        qobj |= Q(block__block_name_en__icontains=q)
+        qobj |= Q(shg_name__icontains=q)
+        qobj |= Q(gram_panchayat__icontains=q)
+        qobj |= Q(village__icontains=q)
+        beneficiaries_qs = beneficiaries_qs.filter(qobj)
+
+    # Column filters
+    ALLOWED_FILTERS = {
+        "block", "gram_panchayat", "village", "shg_name",
+        "social_category", "designation_in_shg_vo_clf", "gender"
+    }
+    for key, val in request.GET.items():
+        if not key.startswith("filter_") or not val:
+            continue
+        fld = key.replace("filter_", "")
+        if fld not in ALLOWED_FILTERS:
+            continue
+        vals = [v.strip() for v in val.split(",") if v.strip()]
+        if not vals:
+            continue
+        if fld == "block":
+            beneficiaries_qs = beneficiaries_qs.filter(block__block_name_en__in=vals)
+        else:
+            beneficiaries_qs = beneficiaries_qs.filter(**{f"{fld}__in": vals})
+
+    # Sorting
+    sort_by = request.GET.get("sort_by", "")
+    order = request.GET.get("order", "asc")
+    allowed_sort_fields = {
+        "block", "gram_panchayat", "village", "shg_name", "member_name",
+        "social_category", "designation_in_shg_vo_clf", "gender", "date_of_birth"
+    }
+    if sort_by in allowed_sort_fields:
+        sort_field = sort_by
+        if sort_by == "block":
+            sort_field = "block__block_name_en"
+        beneficiaries_qs = beneficiaries_qs.order_by(f"-{sort_field}" if order == "desc" else sort_field)
+    else:
+        beneficiaries_qs = beneficiaries_qs.order_by("id")
+
+    # === Pagination: explicit total_rows & total_pages (no artificial cap) ===
+    per_page = 20  # change if needed
+    total_rows = beneficiaries_qs.count() if show_table else 0
+    import math
+    total_pages = math.ceil(total_rows / per_page) if total_rows else 1
+
+    # clamp requested page
+    page_param = request.GET.get("page", "1")
+    try:
+        requested_page = int(page_param)
+    except Exception:
+        requested_page = 1
+    if requested_page < 1:
+        requested_page = 1
+    if requested_page > total_pages:
+        requested_page = total_pages
+
+    # build paginator and get page
+    paginator = Paginator(beneficiaries_qs, per_page) if show_table else None
+    page_obj = paginator.get_page(requested_page) if paginator else []
+
+    # page window for template (show +-5 pages)
+    window = 5
+    page_window_start = max(1, requested_page - window)
+    page_window_end = min(total_pages, requested_page + window)
+
+    # groupable values scoped to the already-filtered beneficiaries_qs
+    def _clean(vals):
+        return [v for v in vals if v is not None and str(v).strip() != ""]
+
+    if assigned_district:
+        blocks_for_district = list(Block.objects.filter(district=assigned_district).order_by("block_name_en").values_list("block_name_en", flat=True).distinct())
+        gp_vals = list(beneficiaries_qs.order_by("gram_panchayat").values_list("gram_panchayat", flat=True).distinct())
+        village_vals = list(beneficiaries_qs.order_by("village").values_list("village", flat=True).distinct())
+        shg_vals = list(beneficiaries_qs.order_by("shg_name").values_list("shg_name", flat=True).distinct())
+        social_vals = list(beneficiaries_qs.order_by("social_category").values_list("social_category", flat=True).distinct())
+        desig_vals = list(beneficiaries_qs.order_by("designation_in_shg_vo_clf").values_list("designation_in_shg_vo_clf", flat=True).distinct())
+        gender_vals = list(beneficiaries_qs.order_by("gender").values_list("gender", flat=True).distinct())
+    else:
+        blocks_for_district = []
+        gp_vals = village_vals = shg_vals = social_vals = desig_vals = gender_vals = []
+        aspirational_blocks = set()
+
+    groupable_values = {
+        "block": _clean(blocks_for_district),
+        "gram_panchayat": _clean(gp_vals),
+        "village": _clean(village_vals),
+        "shg_name": _clean(shg_vals),
+        "social_category": _clean(social_vals),
+        "designation_in_shg_vo_clf": _clean(desig_vals),
+        "gender": _clean(gender_vals),
+    }
+
+    # training plans / batches (unchanged)
+    plans_qs = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
+    plan_ids = list(plans_qs.values_list('id', flat=True))
+    batches_map = {}
+    if plan_ids:
+        batches = Batch.objects.filter(training_plan_id__in=plan_ids).order_by('-start_date')
+        for b in batches:
+            batches_map.setdefault(b.training_plan_id, []).append({
+                'id': b.id,
+                'code': b.code or f"Batch-{b.id}",
+                'title': getattr(b.training_plan, 'training_name', '') if getattr(b, 'training_plan', None) else '',
+                'start_date': b.start_date,
+                'end_date': b.end_date,
+                'status': b.status,
+                'centre_proposed': b.centre_proposed,
+                'created_at': b.created_at,
+            })
+
+    plans_list = []
+    for p in plans_qs:
+        plans_list.append({
+            'id': p.id,
+            'training_name': p.training_name,
+            'theme': p.theme,
+            'approval_status': getattr(p, 'approval_status', None),
+            'related_batches': batches_map.get(p.id, []),
+        })
+
+    assigned_district_short = getattr(assigned_district, "district_name_en", None) if assigned_district else None
+    selected_block_for_ctx = selected_block_obj.block_name_en if selected_block_obj else None
+
+    context = {
+        "chart1": chart1,
+        "chart2": chart2,
+        "chart_labels": chart_labels,
+        "chart1_json": json.dumps(chart1),
+        "chart2_json": json.dumps(chart2),
+        "chart_labels_json": json.dumps(chart_labels),
+        "blocks": blocks,
+        "assigned_district": assigned_district_short,
+        "aspirational_blocks": list(aspirational_blocks),
+        "selected_block": selected_block_for_ctx,
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "show_table": show_table,
+        "groupable_values": groupable_values,
+        "groupable_values_json": json.dumps(groupable_values, default=str),
+        "training_plans": plans_list,
+        "beneficiaries_count": total_rows,
+        "search_query": request.GET.get("search", ""),
+        "sort_by": sort_by,
+        "order": order,
+        "total_pages": total_pages,
+        "current_page": requested_page,
+        "per_page": per_page,
+        "page_window_start": page_window_start,
+        "page_window_end": page_window_end,
+        "asp_block": asp_block_name,
+        "show_prev_ellipsis": page_window_start > 2,
+        "show_prev_first_page_link": page_window_start > 1,
+        "show_next_ellipsis": page_window_end < (total_pages - 1),
+        "show_next_last_page_link": page_window_end < total_pages,        
+    }
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        html = render_to_string("dmmu/dmmu_dashboard.html", context, request=request)
+        return HttpResponse(html)
+
+    default_content = render_to_string("dmmu/dmmu_dashboard.html", context, request=request)
+    return render(request, "dashboard.html", {"user": request.user, "default_content": default_content})
+
+
+@login_required
+def dmmu_training_requests(request):
+    """
+    DMMU training requests fragment. Renders 'dmmu/training_requests.html'.
+    """
+    if getattr(request.user, 'role', '').lower() != 'dmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    valid_statuses = {c[0] for c in Batch._meta.get_field('status').choices}
+    wanted = {'PENDING', 'PROPOSED', 'DRAFT'}
+    statuses_to_show = list(valid_statuses.intersection(wanted))
+
+    qs = Batch.objects.filter(training_plan__theme_expert=request.user)
+    if statuses_to_show:
+        qs = qs.filter(status__in=statuses_to_show)
+
+    qs = qs.select_related('training_plan', 'partner').order_by('-created_at')
+
+    fragment = render_to_string('dmmu/training_requests.html', {'requests': qs}, request=request)
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+
+
+@login_required
+def dmmu_request_detail(request, batch_id):
+    """
+    DMMU request detail. Renders 'dmmu/request_detail.html'.
+    """
+    if getattr(request.user, 'role', '').lower() != 'dmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    batch = get_object_or_404(
+        Batch.objects.select_related('training_plan', 'partner').prefetch_related('trainers', 'beneficiaries'),
+        id=batch_id,
+        training_plan__theme_expert=request.user
+    )
+
+    # Build trainer certificate map (same approach as in partner_view_batch)
+    trainer_cert_map = {}
+    trainer_ids = [t.id for t in batch.trainers.all()]
+    if trainer_ids:
+        certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
+        for c in certs:
+            prev = trainer_cert_map.get(c.trainer_id)
+            if not prev:
+                trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+            else:
+                prev_issued = prev.get('issued_on')
+                cur_issued = c.issued_on
+                if (cur_issued and (not prev_issued or cur_issued > prev_issued)) or (not prev_issued and not cur_issued and c.created_at > prev.get('created_at')):
+                    trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+    trainer_cert_map = {k: (v['certificate_number'] if v and v.get('certificate_number') else None) for k, v in trainer_cert_map.items()}
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip().lower()
+        status_choices = {c[0].lower(): c[0] for c in Batch._meta.get_field('status').choices}
+
+        def set_status_if_available(token_lower):
+            token_lower = token_lower.lower()
+            if token_lower in status_choices:
+                batch.status = status_choices[token_lower]
+                return True
+            return False
+
+        if action == 'approve':
+            if getattr(batch, 'centre_proposed', None) and not getattr(batch, 'centre', None):
+                batch.centre = batch.centre_proposed
+            set_success = False
+            if set_status_if_available('ONGOING'):
+                set_success = True
+            else:
+                for fallback in ('PENDING', 'APPROVED', 'PROPOSED', 'DRAFT'):
+                    if set_status_if_available(fallback):
+                        set_success = True
+                        break
+            batch.save()
+            if set_success:
+                messages.success(request, "Batch approved and status updated.")
+            else:
+                messages.success(request, "Batch approved (status token not mapped cleanly).")
+
+        elif action == 'reject':
+            if set_status_if_available('REJECTED'):
+                batch.save()
+                messages.info(request, "Batch rejected.")
+            else:
+                messages.info(request, "Batch rejection recorded (status token not mapped).")
+
+        return redirect('dmmu_training_requests')
+
+    # GET: prepare data and render
+    partner = getattr(batch, 'partner', None)
+    submissions = []
+    if partner:
+        try:
+            submissions = TrainingPartnerSubmission.objects.filter(partner=partner).order_by('-uploaded_on')[:12]
+        except Exception:
+            try:
+                submissions = partner.trainingsubmission_set.all().order_by('-uploaded_on')[:12]
+            except Exception:
+                submissions = []
+
+    beneficiaries = list(batch.beneficiaries.all())
+    today = date.today()
+    for b in beneficiaries:
+        dob = getattr(b, 'date_of_birth', None)
+        age = None
+        if dob:
+            try:
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            except Exception:
+                age = None
+        setattr(b, 'age', age)
+
+    fragment_html = render_to_string('dmmu/request_detail.html', {
+        'batch': batch,
+        'partner': partner,
+        'submissions': submissions,
+        'beneficiaries': beneficiaries,
+        'today': today,
+        'trainer_cert_map': trainer_cert_map,
     }, request=request)
 
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
