@@ -34,6 +34,7 @@ from django.db.models import Prefetch
 from datetime import date
 from django.db.models import OuterRef, Subquery
 from datetime import timedelta
+from django.db.utils import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -1454,6 +1455,14 @@ def training_partner_centre_registration(request):
     }
     return render(request, "training_partner/centre_registration.html", context)
 
+@login_required
+def partner_ongoing_trainings(request):
+    partner = _get_partner_for_user(request.user)
+    ongoing = Batch.objects.filter(
+        request__partner=partner,
+        status__iexact='ongoing'
+    ).select_related('training_plan')
+    return render(request, 'training_partner/ongoing_list.html', {'ongoing': ongoing})
 
 @require_POST
 @login_required
@@ -1940,7 +1949,7 @@ def partner_create_batches(request, request_id=None):
 
 
 @login_required
-def training_partner_attendance(request):
+def partner_ongoing_trainings(request):
     if getattr(request.user, "role", "").lower() != "training_partner":
         return HttpResponseForbidden("Not authorized")
 
@@ -1948,35 +1957,22 @@ def training_partner_attendance(request):
     if not partner:
         return HttpResponseForbidden("No partner profile")
 
-    # try to discover canonical 'ongoing' token(s) from Batch.status choices
-    status_field = None
-    try:
-        status_field = Batch._meta.get_field('status')
-        choices = [c[0] for c in getattr(status_field, 'choices', [])]
-    except Exception:
-        choices = []
-
-    ongoing_tokens = [t for t in choices if t and (t.lower() == 'ongoing' or t.upper() == 'ONGOING')]
-    if not ongoing_tokens:
-        # fallback: try 'running' or 'RUNNING'
-        ongoing_tokens = [t for t in choices if t and (t.lower() == 'running' or t.upper() == 'RUNNING')]
-
     today = timezone.localdate()
 
-    if ongoing_tokens:
-        # add prefetch_related so trainers/beneficiaries are available without extra queries
-        batches_qs = Batch.objects.filter(partner=partner, status__in=ongoing_tokens) \
-            .select_related('training_plan') \
-            .prefetch_related('trainers', 'beneficiaries') \
-            .order_by('start_date')
-    else:
-        # fallback to any batch with start_date <= today <= end_date where partner matches
-        batches_qs = Batch.objects.filter(partner=partner, start_date__lte=today, end_date__gte=today) \
-            .select_related('training_plan') \
-            .prefetch_related('trainers', 'beneficiaries') \
-            .order_by('start_date')
+    # read filter from querystring; default to 'all'
+    status_param = (request.GET.get('status') or 'all').strip().lower()
 
-    # Evaluate queryset and attach trainer/beneficiary lists (so attributes we set persist)
+    # base queryset for the partner
+    batches_qs = Batch.objects.filter(request__partner=partner)
+
+    # apply status filter if not 'all'
+    if status_param != 'all':
+        # allow filtering by any status string (case-insensitive)
+        batches_qs = batches_qs.filter(status__iexact=status_param)
+
+    # optimize related objects used in template
+    batches_qs = batches_qs.select_related('request__training_plan').prefetch_related('trainers').order_by('start_date')
+
     batches = list(batches_qs)
 
     # compute age helper
@@ -1990,25 +1986,253 @@ def training_partner_attendance(request):
             return None
 
     for b in batches:
-        # evaluated lists (so same instances used in templates/modal)
         trainers_list = list(b.trainers.all())
-        beneficiaries_list = list(b.beneficiaries.all())
+        beneficiaries_list = list(b.request.beneficiaries.all()) if getattr(b, 'request', None) else []
 
-        # attach age on beneficiary instances
+        # attach age to beneficiaries
         for ben in beneficiaries_list:
-            dob = getattr(ben, 'date_of_birth', None)
-            ben.age = compute_age(dob)
+            ben.age = compute_age(getattr(ben, 'date_of_birth', None))
 
-        # attach to batch for template usage (avoid polluting public API, use underscore-prefixed attrs)
         setattr(b, 'trainers_list', trainers_list)
         setattr(b, 'beneficiaries_list', beneficiaries_list)
+
+    # OPTIONAL: prepare status options for the template (so dropdown can list available statuses)
+    # you can pass a static list or generate using distinct() on DB. Here a small helpful set:
+    status_options = ['all', 'ONGOING', 'COMPLETED', 'SCHEDULED', 'CANCELLED']
 
     context = {
         'partner': partner,
         'batches': batches,
         'today': today,
+        'status': status_param,
+        'status_options': status_options,
     }
-    return render(request, 'training_partner/attendance_management.html', context)
+    return render(request, 'training_partner/ongoing_list.html', context)
+
+
+@login_required
+def attendance_per_batch(request, batch_id):
+    # fetch batch + related to minimize queries
+    batch = get_object_or_404(
+        Batch.objects.select_related('request__training_plan', 'centre').prefetch_related('trainers'),
+        id=batch_id
+    )
+    today = timezone.localdate()
+
+    # attach training_plan for template
+    training_plan = getattr(batch.request, 'training_plan', None) if getattr(batch, 'request', None) else None
+    setattr(batch, 'training_plan', training_plan)
+
+    # ensure centre name available as `.name`
+    if getattr(batch, 'centre', None):
+        centre_display = getattr(batch.centre, 'venue_name', None) or getattr(batch.centre, 'centre_coord_name', None) or str(batch.centre)
+        try:
+            setattr(batch.centre, 'name', centre_display)
+        except Exception:
+            setattr(batch, 'centre_name', centre_display)
+
+    # ---------- prepare participants & ekYC lookups ----------
+    trainers_qs = list(batch.trainers.all())
+    beneficiaries_qs = list(batch.request.beneficiaries.all()) if getattr(batch, 'request', None) else []
+
+    trainers_display = []
+    for t in trainers_qs:
+        display_name = getattr(t, 'name', None) or getattr(t, 'full_name', None) or str(t)
+        trainers_display.append({'id': t.id, 'name': display_name, 'obj': t})
+
+    beneficiaries_display = []
+    for b in beneficiaries_qs:
+        display_name = getattr(b, 'member_name', None) or getattr(b, 'name', None) or str(b)
+        beneficiaries_display.append({'id': b.id, 'name': display_name, 'obj': b})
+
+    # safe ekYC getter
+    def safe_get_ekyc(batch_obj, participant_id, role):
+        try:
+            return BatchEkycVerification.objects.filter(
+                batch=batch_obj,
+                participant_id=participant_id,
+                participant_role=role
+            ).first()
+        except OperationalError as e:
+            logger.warning("OperationalError while querying BatchEkycVerification: %s", e)
+            return None
+        except Exception as e:
+            logger.exception("Unexpected error while querying BatchEkycVerification: %s", e)
+            return None
+
+    participants = []
+    for t in trainers_display:
+        participants.append({
+            'id': t['id'],
+            'name': t['name'],
+            'role': 'trainer',
+            'ekyc': safe_get_ekyc(batch, t['id'], 'trainer')
+        })
+    for b in beneficiaries_display:
+        participants.append({
+            'id': b['id'],
+            'name': b['name'],
+            'role': 'beneficiary',
+            'ekyc': safe_get_ekyc(batch, b['id'], 'beneficiary')
+        })
+
+    # check if ekyc table accessible (only show warning once)
+    ek_table_accessible = True
+    try:
+        BatchEkycVerification.objects.exists()
+    except OperationalError:
+        ek_table_accessible = False
+        if not request.session.get('ekyc_table_warning_shown'):
+            messages.warning(request, "E-KYC DB table missing or not accessible — e-KYC upload will be unavailable until migrations are applied.")
+            request.session['ekyc_table_warning_shown'] = True
+
+    # ---------- POST handling ----------
+    if request.method == 'POST':
+        # E-KYC upload
+        if 'participant_id' in request.POST:
+            logger.info("E-KYC upload POST. files=%s", list(request.FILES.keys()))
+
+            if not ek_table_accessible:
+                messages.error(request, "E-KYC functionality not available: DB table missing. Run migrations.")
+                return redirect('attendance_per_batch', batch_id=batch.id)
+
+            try:
+                participant_id = int(request.POST.get('participant_id', 0))
+            except (TypeError, ValueError):
+                messages.error(request, "Invalid participant id.")
+                return redirect('attendance_per_batch', batch_id=batch.id)
+
+            participant_role = request.POST.get('participant_role', '')
+            uploaded_file = request.FILES.get('ekyc_file')
+
+            if not uploaded_file:
+                messages.error(request, "No file uploaded. Please choose a PDF and try again.")
+                return redirect('attendance_per_batch', batch_id=batch.id)
+
+            try:
+                ekyc_obj, created = BatchEkycVerification.objects.get_or_create(
+                    batch=batch,
+                    participant_id=participant_id,
+                    participant_role=participant_role,
+                    defaults={'ekyc_status': 'PENDING'}
+                )
+
+                ekyc_obj.ekyc_document = uploaded_file
+                ekyc_obj.ekyc_status = 'PENDING'
+                ekyc_obj.save()
+
+                ekyc_obj = BatchEkycVerification.objects.get(pk=ekyc_obj.pk)
+                file_url = getattr(ekyc_obj.ekyc_document, 'url', None)
+                file_name = getattr(ekyc_obj.ekyc_document, 'name', None)
+                logger.info("Saved eKYC: batch=%s participant=%s role=%s file=%s url=%s", batch.id, participant_id, participant_role, file_name, file_url)
+
+                if file_url:
+                    messages.success(request, "E-KYC uploaded successfully.")
+                else:
+                    messages.warning(request, "E-KYC saved but file URL not available. Check MEDIA settings / storage.")
+            except Exception as e:
+                logger.exception("Error saving E-KYC: %s", e)
+                messages.error(request, f"Failed to save E-KYC: {str(e)}")
+
+            return redirect('attendance_per_batch', batch_id=batch.id)
+
+        # Attendance submission (CSV / checkboxes)
+        elif 'csv_file' in request.FILES or any(k.startswith('trainer_') or k.startswith('beneficiary_') for k in request.POST):
+            # create attendance for today
+            attendance_obj, created = BatchAttendance.objects.get_or_create(batch=batch, date=today)
+
+            csv_file = request.FILES.get('csv_file')
+            if csv_file:
+                attendance_obj.csv_upload = csv_file
+                attendance_obj.save()
+
+            # collect checkbox attendance
+            participant_list = []
+            for t in trainers_display:
+                present = request.POST.get(f"trainer_{t['id']}") == 'on'
+                participant_list.append({
+                    'participant_id': t['id'],
+                    'participant_name': t['name'],
+                    'participant_role': 'trainer',
+                    'present': present
+                })
+            for b in beneficiaries_display:
+                present = request.POST.get(f"beneficiary_{b['id']}") == 'on'
+                participant_list.append({
+                    'participant_id': b['id'],
+                    'participant_name': b['name'],
+                    'participant_role': 'beneficiary',
+                    'present': present
+                })
+
+            for p in participant_list:
+                ParticipantAttendance.objects.update_or_create(
+                    attendance=attendance_obj,
+                    participant_id=p['participant_id'],
+                    participant_role=p['participant_role'],
+                    defaults={
+                        'participant_name': p['participant_name'],
+                        'present': p['present']
+                    }
+                )
+
+            messages.success(request, f"Attendance recorded for {today}.")
+            # AFTER saving attendance redirect to attendance list display (so forms/tables disappear)
+            return redirect('attendance_per_batch', batch_id=batch.id)
+
+    # ---------- GET handling ----------
+    selected_date = request.GET.get('date')
+    attendance_records = None
+    attendance_obj = None
+
+    # If date selected, show that day's attendance records and CSV link
+    if selected_date:
+        try:
+            selected_date_obj = timezone.datetime.strptime(selected_date, '%Y-%m-%d').date()
+            attendance_obj = BatchAttendance.objects.filter(batch=batch, date=selected_date_obj).first()
+            if attendance_obj:
+                attendance_records = attendance_obj.participant_records.all()
+        except ValueError:
+            messages.error(request, "Invalid date format.")
+            selected_date = None
+
+    # Show ekYC only on first day and if missing
+    is_first_day = (batch.start_date == today)
+    missing_ekyc = False
+    try:
+        for p in participants:
+            if not getattr(p.get('ekyc'), 'ekyc_document', None):
+                missing_ekyc = True
+                break
+    except Exception:
+        missing_ekyc = True
+
+    # Do not show attendance upload if attendance already recorded for today
+    attendance_exists_today = BatchAttendance.objects.filter(batch=batch, date=today).exists()
+
+    show_ekyc = is_first_day and missing_ekyc
+    show_attendance = batch.status.lower() == 'ongoing' and (not is_first_day or (is_first_day and not missing_ekyc)) and (not attendance_exists_today)
+
+    # If neither ekYC nor upload form shown, show attendance list for the batch (links)
+    attendance_list = None
+    if not show_ekyc and not show_attendance and not selected_date:
+        attendance_list = BatchAttendance.objects.filter(batch=batch).order_by('-date')
+
+    context = {
+        'batch': batch,
+        'today': today,
+        'participants': participants,
+        'trainers': trainers_display,
+        'beneficiaries': beneficiaries_display,
+        'show_ekyc': show_ekyc,
+        'show_attendance': show_attendance,
+        'attendance_records': attendance_records,
+        'selected_date': selected_date,
+        'attendance_list': attendance_list,
+        'attendance_obj': attendance_obj,  # in case template wants CSV link
+    }
+    return render(request, 'training_partner/attendance_per_batch.html', context)
+
 
 @login_required
 def partner_upload_attendance(request, batch_id):
@@ -3072,7 +3296,8 @@ def dmmu_request_detail(request, request_id):
             except Exception:
                 logger.exception("dmmu_request_detail: failed processing posted trainers for batch %s", b.id)
 
-        # Approve all => set request.status and all batches.status to ONGOING
+        # Approve all => set request.status and all batches.status
+        today = timezone.localdate()
         if action == 'approve_all':
             try:
                 if hasattr(tr, 'status'):
@@ -3085,21 +3310,28 @@ def dmmu_request_detail(request, request_id):
                 batches = Batch.objects.filter(request=tr)
                 for b in batches:
                     try:
-                        # choose appropriate token if choices exist
+                        # Determine status based on start date
+                        batch_date = b.start_date  # Replace with actual field if different
+                        if batch_date == today:
+                            desired_status = 'ONGOING'
+                        else:
+                            desired_status = 'SCHEDULED'
+
+                        # Choose appropriate token from choices if defined
                         try:
                             choices = [c[0] for c in Batch._meta.get_field('status').choices]
-                            if 'ONGOING' in choices:
-                                b.status = 'ONGOING'
-                            elif 'IN_PROGRESS' in choices:
-                                b.status = 'IN_PROGRESS'
+                            if desired_status in choices:
+                                b.status = desired_status
                             else:
-                                b.status = 'ONGOING'
+                                # fallback if desired status isn't a valid choice
+                                b.status = choices[0] if choices else 'ONGOING'
                         except Exception:
-                            b.status = 'ONGOING'
+                            b.status = desired_status
                         b.save()
                     except Exception:
                         logger.exception("dmmu_request_detail: batch %s status update failed", b.id)
-                messages.success(request, "All batches approved and training marked ONGOING.")
+
+                messages.success(request, "All batches approved and training marked accordingly.")
             except Exception:
                 logger.exception("dmmu_request_detail: failed to set batch statuses")
 

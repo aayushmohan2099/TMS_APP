@@ -343,3 +343,56 @@ class DmmuDistrictAssignmentAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "district", "assigned_at")
     search_fields = ("user__username", "district__district_name_en")
     autocomplete_fields = ("user", "district")
+
+# ---------------------------------
+# Batch eKYC Verification Admin
+# ---------------------------------
+@admin.register(BatchEkycVerification)
+class BatchEkycVerificationAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'participant_id', 'participant_role', 'ekyc_status', 'verified_on', 'created_at')
+    list_filter = ('participant_role', 'ekyc_status', 'batch__code')
+    search_fields = ('batch__code', 'participant_id')
+    date_hierarchy = 'verified_on'
+    autocomplete_fields = ['batch']
+    readonly_fields = ('created_at',)
+
+
+# ---------------------------------
+# Participant Attendance Inline
+# (for use inside BatchAttendance admin)
+# ---------------------------------
+class ParticipantAttendanceInline(admin.TabularInline):
+    model = ParticipantAttendance
+    extra = 0
+    fields = ('participant_id', 'participant_name', 'participant_role', 'present')
+    readonly_fields = ()
+    show_change_link = True
+
+
+# ---------------------------------
+# Batch Attendance Admin
+# ---------------------------------
+@admin.register(BatchAttendance)
+class BatchAttendanceAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'date', 'csv_upload', 'created_at')
+    list_filter = ('batch__code',)
+    search_fields = ('batch__code',)
+    date_hierarchy = 'date'
+    inlines = [ParticipantAttendanceInline]
+    autocomplete_fields = ['batch']
+    readonly_fields = ('created_at',)
+
+
+# ---------------------------------
+# Participant Attendance Admin
+# ---------------------------------
+@admin.register(ParticipantAttendance)
+class ParticipantAttendanceAdmin(admin.ModelAdmin):
+    list_display = ('participant_name', 'participant_role', 'present', 'attendance', 'attendance_date')
+    list_filter = ('participant_role', 'present', 'attendance__batch__code')
+    search_fields = ('participant_name', 'participant_id')
+    autocomplete_fields = ['attendance']
+
+    def attendance_date(self, obj):
+        return obj.attendance.date
+    attendance_date.short_description = 'Date'

@@ -6,10 +6,42 @@
 {% block header_subtitle %}Select an application from the left to begin.{% endblock %}
 
 {% block content %}
+<div class="container-fluid">
+  <!-- KPI Row -->
+  <div class="row mb-3 text-center justify-content-center">
+    <div class="col-auto">
+      <div class="card p-2" style="min-width:140px;">
+        <div class="small text-muted">Total Trainings</div>
+        <div class="h5 mb-0">{{ partner.assigned_batches_qs|length }}</div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card p-2" style="min-width:140px;">
+        <div class="small text-muted">Upcoming (7d)</div>
+        <div class="h5 mb-0">
+          {% if running %}{{ running|length }}{% else %}0{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card p-2" style="min-width:140px;">
+        <div class="small text-muted">Avg Attendance</div>
+        <div class="h5 mb-0">—</div>
+      </div>
+    </div>
+    <div class="col-auto">
+      <div class="card p-2" style="min-width:140px;">
+        <div class="small text-muted">Invoices Pending</div>
+        <div class="h5 mb-0">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Layout -->
   <div class="row g-3">
-    <!-- LEFT column: Tabs area (Targets -> Requests -> Quick Actions) -->
-    <div class="col-md-4">
-      <!-- Targets -->
+    <!-- LEFT: Targets + Requests -->
+    <div class="col-md-8">
+      <!-- Training Targets -->
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="mb-2">Training Targets</h5>
@@ -36,7 +68,7 @@
         </div>
       </div>
 
-      <!-- Training Requests (KEY) -->
+      <!-- Training Requests -->
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="mb-2">Training Requests</h5>
@@ -64,157 +96,89 @@
           <div class="text-end"><a href="#" class="btn btn-sm btn-link">View all requests</a></div>
         </div>
       </div>
+    </div>
 
+    <!-- RIGHT: Quick Actions + Analytics -->
+    <div class="col-md-4">
       <!-- Quick Actions -->
       <div class="card mb-3">
         <div class="card-body">
           <h6>Quick Actions</h6>
           <div class="d-grid gap-2">
-            <a class="btn btn-primary" href="#" id="openOngoingBtn">Ongoing Trainings</a>
+            <a class="btn btn-primary" href="{% url 'partner_ongoing_trainings' %}">Ongoing Trainings</a>
             <a class="btn btn-outline-secondary" href="{% url 'training_partner_centre_registration' %}">Centre Registration</a>
             <a class="btn btn-outline-secondary" href="{% url 'partner_profile' %}">Edit Profile</a>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- RIGHT column: KPIs & charts (preserved) -->
-    <div class="col-md-8">
-      <div class="row g-3">
-        <!-- KPIs compact -->
-        <div class="col-12">
-          <div class="d-flex gap-2 flex-wrap justify-content-end">
-            <div class="card text-center" style="min-width:140px;">
-              <div class="card-body p-2">
-                <div class="small text-muted">Total Trainings</div>
-                <div class="h5 mb-0">{{ partner.assigned_batches_qs|length }}</div>
-              </div>
-            </div>
+      <!-- Analytics -->
+      <div class="text-center mb-2">
+        <button class="btn btn-outline-primary btn-sm" id="toggleAnalyticsBtn">Show Analytics</button>
+      </div>
 
-            <div class="card text-center" style="min-width:140px;">
-              <div class="card-body p-2">
-                <div class="small text-muted">Upcoming (7d)</div>
-                <div class="h5 mb-0">
-                  {% if running %}
-                    {{ running|length }}
-                  {% else %}
-                    0
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-
-            <div class="card text-center" style="min-width:140px;">
-              <div class="card-body p-2">
-                <div class="small text-muted">Avg Attendance</div>
-                <div class="h5 mb-0">—</div>
-              </div>
-            </div>
-
-            <div class="card text-center" style="min-width:140px;">
-              <div class="card-body p-2">
-                <div class="small text-muted">Invoices Pending</div>
-                <div class="h5 mb-0">—</div>
-              </div>
-            </div>
+      <div id="analyticsSection" style="display:none;">
+        <div class="card mb-3">
+          <div class="card-body">
+            <h6 class="mb-3">Monthly Trainings & Attendance</h6>
+            <canvas id="tpChartLineSmall" style="height:220px;"></canvas>
           </div>
         </div>
 
-        <!-- Charts (unchanged) -->
-        <div class="col-12">
-          <div class="card mb-3">
-            <div class="card-body">
-              <h6 class="mb-3">Monthly Trainings & Attendance</h6>
-              <canvas id="tpChartLineSmall" style="height:220px;"></canvas>
+        <div class="row">
+          <div class="col-md-6">
+            <div class="card mb-3">
+              <div class="card-body">
+                <h6 class="mb-2">By Theme (sample)</h6>
+                <canvas id="tpChartBarSmall" style="height:180px;"></canvas>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="col-md-6">
-          <div class="card mb-3">
-            <div class="card-body">
-              <h6 class="mb-2">By Theme (sample)</h6>
-              <canvas id="tpChartBarSmall" style="height:180px;"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-md-6">
-          <div class="card mb-3">
-            <div class="card-body text-center">
-              <h6 class="mb-2">Attendance Breakdown</h6>
-              <canvas id="tpChartDoughnutSmall" style="height:180px; max-width:180px; margin:auto;"></canvas>
+          <div class="col-md-6">
+            <div class="card mb-3">
+              <div class="card-body text-center">
+                <h6 class="mb-2">Attendance Breakdown</h6>
+                <canvas id="tpChartDoughnutSmall" style="height:180px; max-width:180px; margin:auto;"></canvas>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- Ongoing Trainings Modal (kept, unchanged) -->
-  <div class="modal fade" id="ongoingTrainingsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Ongoing Trainings</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-        <div class="modal-body">
-          {% if ongoing and ongoing.exists %}
-            <div class="table-responsive">
-              <table class="table table-sm table-bordered">
-                <thead class="table-dark">
-                  <tr>
-                    <th>Batch</th><th>Training</th><th>Theme</th><th>Centre</th><th>Partner</th><th>Start</th><th>End</th><th>Trainers</th><th>Participants</th>
-                </thead>
-                <tbody>
-                  {% for b in ongoing %}
-                    <tr>
-                      <td>{{ b.code|default:b.id }}</td>
-                      <td>{{ b.training_plan.training_name }}</td>
-                      <td>{{ b.training_plan.theme }}</td>
-                      <td>{{ b.centre_proposed|default:"(not set)" }}</td>
-                      <td>{% if b.partner %}{{ b.partner.name }}{% else %}&mdash;{% endif %}</td>
-                      <td>{{ b.start_date|date:"Y-m-d"|default:"—" }}</td>
-                      <td>{{ b.end_date|date:"Y-m-d"|default:"—" }}</td>
-                      <td>{{ b.trainers.count }}</td>
-                      <td>{{ b.beneficiaries.count }}</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <div class="text-center text-muted py-4">No ongoing trainings at the moment.</div>
-          {% endif %}
-        </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
-      </div>
-    </div>
-  </div>
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Toggle analytics visibility
+  const toggleBtn = document.getElementById('toggleAnalyticsBtn');
+  const analyticsSection = document.getElementById('analyticsSection');
+  toggleBtn.addEventListener('click', () => {
+    const isHidden = analyticsSection.style.display === 'none';
+    analyticsSection.style.display = isHidden ? 'block' : 'none';
+    toggleBtn.textContent = isHidden ? 'Hide Analytics' : 'Show Analytics';
+  });
 
-  <!-- scripts: Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-    (function(){
-      // open Ongoing Trainings Modal
-      const btn = document.getElementById('openOngoingBtn');
-      if(btn) btn.addEventListener('click', function(e){ e.preventDefault(); new bootstrap.Modal(document.getElementById('ongoingTrainingsModal')).show(); });
+  // Chart rendering (unchanged)
+  const months = ['May','Jun','Jul','Aug','Sep','Oct'];
+  const trainingsPerMonth = [2,4,3,6,5,4];
+  const attendancePct = [78,82,80,85,83,81];
 
-      // sample charts
-      const months = ['May','Jun','Jul','Aug','Sep','Oct'];
-      const trainingsPerMonth = [2,4,3,6,5,4];
-      const attendancePct = [78,82,80,85,83,81];
+  const ctxL = document.getElementById('tpChartLineSmall')?.getContext('2d');
+  if(ctxL) new Chart(ctxL, {
+    data:{ labels: months, datasets: [
+      { type:'bar', label:'Trainings', data:trainingsPerMonth, borderRadius:6 },
+      { type:'line', label:'Attendance %', data:attendancePct, tension:0.35 }
+    ]},
+    options:{ responsive:true, interaction:{mode:'index',intersect:false} }
+  });
 
-      const ctxL = document.getElementById('tpChartLineSmall')?.getContext('2d');
-      if(ctxL) new Chart(ctxL, {
-        data:{ labels: months, datasets: [{ type:'bar', label:'Trainings', data:trainingsPerMonth, borderRadius:6 }, { type:'line', label:'Attendance %', data:attendancePct, tension:0.35 }]},
-        options:{ responsive:true, interaction:{mode:'index',intersect:false} }
-      });
+  const ctxB = document.getElementById('tpChartBarSmall')?.getContext('2d');
+  if(ctxB) new Chart(ctxB, { type:'bar', data:{ labels:['Agri','IT','Hosp'], datasets:[{ data:[6,4,3], borderRadius:6 }] }, options:{ indexAxis:'y', responsive:true } });
 
-      const ctxB = document.getElementById('tpChartBarSmall')?.getContext('2d');
-      if(ctxB) new Chart(ctxB, { type:'bar', data:{ labels:['Agri','IT','Hosp'], datasets:[{ data:[6,4,3], borderRadius:6 }] }, options:{ indexAxis:'y', responsive:true } });
-
-      const ctxD = document.getElementById('tpChartDoughnutSmall')?.getContext('2d');
-      if(ctxD) new Chart(ctxD, { type:'doughnut', data:{ labels:['Present','Absent','Excused'], datasets:[{ data:[820,140,40] }] }, options:{ responsive:true } });
-    })();
-  </script>
+  const ctxD = document.getElementById('tpChartDoughnutSmall')?.getContext('2d');
+  if(ctxD) new Chart(ctxD, { type:'doughnut', data:{ labels:['Present','Absent','Excused'], datasets:[{ data:[820,140,40] }] }, options:{ responsive:true } });
+</script>
 {% endblock %}

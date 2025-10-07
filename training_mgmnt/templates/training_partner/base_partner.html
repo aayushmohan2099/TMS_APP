@@ -97,7 +97,7 @@
           <a class="nav-link active" href="{% url 'training_partner_dashboard' %}" data-menu="dashboard">Dashboard</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="{% url 'training_partner_attendance' %}" data-menu="attendance">Attendance Management</a>
+          <a class="nav-link" href="{% url 'partner_ongoing_trainings' %}" data-menu="attendance">Attendance Management</a>
         </li>
         <li class="nav-item">
           <a class="nav-link" href="{% url 'training_partner_centre_registration' %}" data-menu="centre">Centre Registration</a>
@@ -113,6 +113,16 @@
 
     <!-- Main content -->
     <main class="tp-main col p-3">
+      {% if messages %}
+        <div class="container mt-2">
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
+              {{ msg }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
       <div class="tp-content">
         {% block content %}{% endblock %}
       </div>

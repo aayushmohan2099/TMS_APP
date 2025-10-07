@@ -3,6 +3,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils.text import slugify
+from django.utils import timezone
 
 # -------------------------
 # Core user model
@@ -595,6 +596,7 @@ class Batch(models.Model):
     STATUS_CHOICES = [
         ('PENDING', 'Pending Approval'),
         ('ONGOING', 'Ongoing'),
+        ('SCHEDULED', 'SCHEDULED'),
         ('COMPLETED', 'Completed'),
         ('REJECTED', 'Rejected'),
     ]
@@ -708,6 +710,12 @@ class Batch(models.Model):
         return theme_part, location_name, state_id_part, training_type
 
     def save(self, *args, **kwargs):
+        today = timezone.localdate()
+
+        # Auto-update status based on start_date
+        if self.start_date == today and self.status != 'ONGOING':
+            self.status = 'ONGOING'
+
         # Save first so self.id exists, required for final part of code
         is_new = self.pk is None
         super().save(*args, **kwargs)
@@ -1133,3 +1141,60 @@ class SHG(models.Model):
 
     def __str__(self):
         return f"{self.shg_name or self.shg_code} ({self.shg_code})"
+    
+# ---------------------------------
+# Batch eKYC Verification
+# ---------------------------------
+class BatchEkycVerification(models.Model):
+    batch = models.ForeignKey('Batch', on_delete=models.CASCADE, related_name='ekyc_verifications')
+    participant_id = models.PositiveIntegerField()  # works for both trainers & beneficiaries
+    participant_role = models.CharField(max_length=20, choices=[('trainer', 'Trainer'), ('beneficiary', 'Beneficiary')])
+    ekyc_status = models.CharField(
+        max_length=20,
+        choices=[('PENDING', 'Pending'), ('VERIFIED', 'Verified'), ('FAILED', 'Failed')],
+        default='PENDING'
+    )
+    ekyc_document = models.FileField(upload_to='ekyc_documents/', blank=True, null=True)
+    verified_on = models.DateTimeField(blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Batch eKYC Verification"
+        verbose_name_plural = "Batch eKYC Verifications"
+        unique_together = ('batch', 'participant_id', 'participant_role')
+
+    def __str__(self):
+        return f"{self.batch.code} - {self.participant_role} {self.participant_id} ({self.ekyc_status})"
+
+
+# ---------------------------------
+# Batch Attendance (Day-wise Attendance)
+# ---------------------------------
+class BatchAttendance(models.Model):
+    batch = models.ForeignKey('Batch', on_delete=models.CASCADE, related_name='attendances')
+    date = models.DateField()
+    csv_upload = models.FileField(upload_to='attendance_csvs/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Batch Attendance"
+        verbose_name_plural = "Batch Attendances"
+        unique_together = ('batch', 'date')
+
+    def __str__(self):
+        return f"{self.batch.code} - {self.date}"
+
+
+# ---------------------------------
+# Participant-wise Attendance (Trainers + Beneficiaries)
+# ---------------------------------
+class ParticipantAttendance(models.Model):
+    attendance = models.ForeignKey(BatchAttendance, on_delete=models.CASCADE, related_name='participant_records')
+    participant_id = models.PositiveIntegerField()
+    participant_name = models.CharField(max_length=200)
+    participant_role = models.CharField(max_length=50, choices=[('trainer', 'Trainer'), ('beneficiary', 'Beneficiary')])
+    present = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.participant_name} - {self.attendance.date}"

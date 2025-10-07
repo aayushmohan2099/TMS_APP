@@ -1,0 +1,91 @@
+{% extends "training_partner/base_partner.html" %}
+{% load custom_tags %}
+{% block title %}Ongoing Batches{% endblock %}
+{% block header_title %}Batch Attendance Management{% endblock %}
+{% block header_subtitle %}Manage e-KYC and Attendance for Ongoing Batches{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Batch List</h5>
+      <form method="get" class="d-flex align-items-center">
+        <label class="me-2 fw-bold">Filter:</label>
+        <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+          {# status_options is provided by the view (e.g. ['all','ONGOING','COMPLETED',...]) #}
+          {% for opt in status_options %}
+            {% if opt|lower == 'all' %}
+              <option value="all" {% if status == 'all' %}selected{% endif %}>All</option>
+            {% else %}
+              <option value="{{ opt|lower }}" {% if status == opt|lower %}selected{% endif %}>{{ opt|title }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+
+    {% if batches %}
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Batch</th>
+              <th>Training</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Trainers</th>
+              <th>Participants</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in batches %}
+            <tr>
+              <td>{{ b.code|default:b.id }}</td>
+
+              <td>
+                {# prefer attached training_plan on batch, fallback to request.training_plan if present #}
+                {% if b.training_plan and b.training_plan.training_name %}
+                  {{ b.training_plan.training_name }}
+                {% elif b.request and b.request.training_plan and b.request.training_plan.training_name %}
+                  {{ b.request.training_plan.training_name }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>{{ b.start_date|date:"Y-m-d"|default:"—" }}</td>
+              <td>{{ b.end_date|date:"Y-m-d"|default:"—" }}</td>
+              <td>{{ b.trainers_list|length }}</td>
+              <td>{{ b.beneficiaries_list|length }}</td>
+              <td>
+                <span class="badge bg-{% if b.status|lower == 'ongoing' %}success{% else %}secondary{% endif %}">
+                  {{ b.status|title }}
+                </span>
+              </td>
+              <td>
+                {% if b.start_date == today %}
+                  <a href="{% url 'attendance_per_batch' b.id %}" class="btn btn-sm btn-outline-primary">
+                    Verify / Manage
+                  </a>
+                {% else %}
+                  <a href="{% url 'attendance_per_batch' b.id %}" class="btn btn-sm btn-outline-secondary">
+                    View
+                  </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted py-4">No batches found for selected filter.</div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}
