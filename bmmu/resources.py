@@ -1,224 +1,198 @@
 # resources.py
 from import_export import resources, fields, widgets
-from import_export.widgets import ForeignKeyWidget, DateWidget, Widget, CharWidget
-from .models import (
-    User, Beneficiary, TrainingPlan, MasterTrainer, MasterTrainerCertificate,
-    MasterTrainerExpertise, TrainingPartner, TrainingPartnerTargets, TrainingPartnerSubmission, Batch, Block
-)
+from import_export.widgets import ForeignKeyWidget, DateWidget, CharWidget, IntegerWidget
 from django.contrib.auth import get_user_model
+
+from .models import (
+    User,
+    Beneficiary,
+    TrainingPlan,
+    MasterTrainer,
+    MasterTrainerCertificate,
+    TrainingPartner,
+    TrainingPartnerCentre,
+    TrainingPartnerSubmission,
+    TrainingPartnerTargets,
+    TrainingRequest,
+    Batch,
+    Block,
+)
 
 User = get_user_model()
 
 
-class FileWidget(Widget):
+class FileWidget(widgets.Widget):
     """
-    Simple widget for file fields: on export, try to return .url or .name; on import,
-    return the raw value (you can extend to fetch/store files if needed).
+    File widget: export returns URL (if available) or filename.
+    On import we return the raw value (you can extend to fetch/store files).
     """
     def clean(self, value, row=None, *args, **kwargs):
+        # For now, just store whatever is present in import cell (could be a filename or URL)
         return value or None
 
     def render(self, value, obj=None):
         if not value:
             return ""
         try:
-            url = getattr(value, 'url', None)
-            if url:
-                return url
+            return getattr(value, 'url', '') or getattr(value, 'name', str(value))
         except Exception:
-            pass
-        return getattr(value, 'name', str(value))
+            return str(value)
 
 
-class ChoiceWidget(widgets.Widget):
-    """
-    Maps between human-readable labels and internal DB values for choices.
-    Accepts either internal code or label when importing.
-    """
-    def __init__(self, choices, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.choices = dict(choices)
-        self.reverse_choices = {v: k for k, v in choices}
-
-    def clean(self, value, row=None, *args, **kwargs):
-        if value in (None, ""):
-            return None
-        if value in self.choices:
-            return value
-        if value in self.reverse_choices:
-            return self.reverse_choices[value]
-        val = str(value).strip()
-        for code, label in self.choices.items():
-            if val.lower() == code.lower() or val.lower() == label.lower():
-                return code
-        raise ValueError(f"Invalid choice: {value}")
-
-    def render(self, value, obj=None):
-        if value in self.choices:
-            return self.choices[value]
-        return value or ""
-
-
-# ================= Resources =================
+# -------------------------
+# User
+# -------------------------
 class UserResource(resources.ModelResource):
     class Meta:
         model = User
+        import_id_fields = ("username",)
         skip_unchanged = True
         report_skipped = True
-        import_id_fields = ('username',)
-        exclude = ('created_at',)
+        fields = ("username", "first_name", "last_name", "email", "role")
 
 
+# -------------------------
+# Beneficiary
+# -------------------------
 class BeneficiaryResource(resources.ModelResource):
     class Meta:
         model = Beneficiary
+        import_id_fields = ("member_code",)
         skip_unchanged = True
         report_skipped = True
-        import_id_fields = ('member_code',)
-        exclude = ('id', 'created_at', 'updated_at',)
+        exclude = ("id", "created_at", "updated_at")
 
+
+# -------------------------
+# Block
+# -------------------------
 class BlockResource(resources.ModelResource):
     class Meta:
         model = Block
+        import_id_fields = ("block_id",)
         skip_unchanged = True
         report_skipped = True
-        import_id_fields = ('id')
+        fields = ("block_id", "block_name_en", "block_code", "district", "state_id")
 
+
+# -------------------------
+# TrainingPlan
+# -------------------------
 class TrainingPlanResource(resources.ModelResource):
-    """
-    TrainingPlan import/export resource consistent with the model (no training_partner field).
-    """
-    theme_expert = fields.Field(
-        column_name='Thematic expert (username)',
-        attribute='theme_expert',
-        widget=ForeignKeyWidget(User, 'username')
-    )
-
-    training_name = fields.Field(column_name='Module (Training Name)', attribute='training_name', widget=CharWidget())
-    theme = fields.Field(column_name='theme', attribute='theme', widget=CharWidget())
-
-    type_of_training = fields.Field(
-        column_name='Type',
-        attribute='type_of_training',
-        widget=ChoiceWidget(choices=TrainingPlan.TYPE_CHOICES)
-    )
-
-    level_of_training = fields.Field(
-        column_name='Level',
-        attribute='level_of_training',
-        widget=ChoiceWidget(choices=TrainingPlan.LEVEL_CHOICES)
-    )
-
-    no_of_days = fields.Field(column_name='Days', attribute='no_of_days', widget=widgets.IntegerWidget())
-
-    approval_status = fields.Field(column_name='Approval', attribute='approval_status', widget=CharWidget())
+    theme_expert = fields.Field(attribute="theme_expert", column_name="theme_expert_username",
+                                widget=ForeignKeyWidget(User, "username"))
 
     class Meta:
         model = TrainingPlan
-        import_id_fields = ('id',)
+        import_id_fields = ("id",)
         skip_unchanged = True
         report_skipped = True
-        exclude = ('created_at',)
+        fields = ("id", "training_name", "theme", "type_of_training", "level_of_training", "no_of_days",
+                  "approval_status", "theme_expert")
 
 
-class TrainingPartnerResource(resources.ModelResource):
-    user = fields.Field(column_name='User (username)', attribute='user', widget=ForeignKeyWidget(User, 'username'))
-    name = fields.Field(column_name='Name', attribute='name')
-    contact_person = fields.Field(column_name='Contact Person', attribute='contact_person')
-    contact_mobile = fields.Field(column_name='Contact Mobile', attribute='contact_mobile')
-    email = fields.Field(column_name='Email', attribute='email')
-    center_location = fields.Field(column_name='Center Location', attribute='center_location')
-    bank_name = fields.Field(column_name='Bank Name', attribute='bank_name')
-    bank_branch = fields.Field(column_name='Bank Branch', attribute='bank_branch')
-    bank_account_number = fields.Field(column_name='Bank Account Number', attribute='bank_account_number')
-    bank_ifsc = fields.Field(column_name='Bank IFSC', attribute='bank_ifsc')
-    tpm_registration_no = fields.Field(column_name='TPM Registration No', attribute='tpm_registration_no')
-    targets_allocated = fields.Field(column_name='Targets Allocated (summary)', attribute='targets_allocated')
-
-    class Meta:
-        model = TrainingPartner
-        fields = (
-            'user', 'name', 'contact_person', 'contact_mobile', 'email',
-            'center_location',
-            'bank_name', 'bank_branch', 'bank_account_number', 'bank_ifsc',
-            'tpm_registration_no', 'targets_allocated',
-        )
-        skip_unchanged = True
-        report_skipped = True
-        import_id_fields = ()
-
-
-class TrainingPartnerTargetsResource(resources.ModelResource):
-    partner = fields.Field(column_name='Partner Name', attribute='partner', widget=ForeignKeyWidget(TrainingPartner, 'name'))
-    allocated_by = fields.Field(column_name='Allocated By (username)', attribute='allocated_by', widget=ForeignKeyWidget(User, 'username'))
-    target_type = fields.Field(column_name='Target Type', attribute='target_type')
-    target_key = fields.Field(column_name='Target Key', attribute='target_key')
-    target_count = fields.Field(column_name='Target Count', attribute='target_count')
-    evidence_file = fields.Field(column_name='Evidence File', attribute='evidence_file', widget=FileWidget())
-
-    class Meta:
-        model = TrainingPartnerTargets
-        import_id_fields = ()
-        skip_unchanged = True
-        report_skipped = True
-        exclude = ('created_at',)
-
-
-class TrainingPartnerSubmissionResource(resources.ModelResource):
-    partner = fields.Field(column_name='Partner Name', attribute='partner', widget=ForeignKeyWidget(TrainingPartner, 'name'))
-    category = fields.Field(column_name='Category', attribute='category')
-    file = fields.Field(column_name='File', attribute='file', widget=FileWidget())
-
-    class Meta:
-        model = TrainingPartnerSubmission
-        import_id_fields = ()
-        skip_unchanged = True
-        report_skipped = True
-        exclude = ('uploaded_on',)
-
-
+# -------------------------
+# MasterTrainer
+# -------------------------
 class MasterTrainerResource(resources.ModelResource):
-    full_name = fields.Field(column_name='Full Name', attribute='full_name')
-    skills = fields.Field(column_name='Thematic Sector', attribute='skills')
-    empanel_district = fields.Field(column_name='Empanel District', attribute='empanel_district')
-    date_of_birth = fields.Field(column_name='Date of Birth', attribute='date_of_birth', widget=DateWidget(format='%Y-%m-%d'))
-    social_category = fields.Field(column_name='Social Category', attribute='social_category')
-    gender = fields.Field(column_name='Gender', attribute='gender')
-    education = fields.Field(column_name='Education', attribute='education')
-    marital_status = fields.Field(column_name='Marital Status', attribute='marital_status')
-    parent_or_spouse_name = fields.Field(column_name='Father/Mother/Spouse Name', attribute='parent_or_spouse_name')
-    bank_account_number = fields.Field(column_name='Account Number', attribute='bank_account_number')
-    ifsc = fields.Field(column_name='IFSC', attribute='ifsc')
-    branch_name = fields.Field(column_name='Branch Name', attribute='branch_name')
-    bank_name = fields.Field(column_name='Bank Name', attribute='bank_name')
-    mobile_no = fields.Field(column_name='Mobile No.', attribute='mobile_no')
-    aadhaar_no = fields.Field(column_name='Aadhaar No', attribute='aadhaar_no')
-    profile_picture = fields.Field(column_name='Profile Picture', attribute='profile_picture', widget=FileWidget())
-
-    thematic_expert_recommendation = fields.Field(column_name='Thematic Expert Recommendation', attribute='thematic_expert_recommendation')
-    success_rate = fields.Field(column_name='Success Rate', attribute='success_rate')
-    any_other_tots = fields.Field(column_name='Any other ToTs', attribute='any_other_tots')
-    other_achievements = fields.Field(column_name='Other Achievements', attribute='other_achievements')
-    recommended_tots_by_dmmu = fields.Field(column_name='Recommended ToTs by DMMU', attribute='recommended_tots_by_dmmu')
-    success_story_publications = fields.Field(column_name='Success Story Publications', attribute='success_story_publications')
+    date_of_birth = fields.Field(attribute="date_of_birth", column_name="date_of_birth",
+                                 widget=DateWidget(format="%Y-%m-%d"))
+    profile_picture = fields.Field(attribute="profile_picture", column_name="profile_picture", widget=FileWidget())
 
     class Meta:
         model = MasterTrainer
+        import_id_fields = ("id",)
         skip_unchanged = True
         report_skipped = True
-        import_id_fields = ()
-        exclude = ('created_at',)
+        fields = (
+            "id", "full_name", "date_of_birth", "mobile_no", "aadhaar_no",
+            "empanel_district", "designation", "bank_account_number", "ifsc", "branch_name", "bank_name",
+            "skills", "profile_picture",
+        )
 
 
-class MasterTrainerCertificateResource(resources.ModelResource):
-    trainer = fields.Field(column_name='Trainer (full_name)', attribute='trainer', widget=ForeignKeyWidget(MasterTrainer, 'full_name'))
-    training_module = fields.Field(column_name='Training Module', attribute='training_module', widget=ForeignKeyWidget(TrainingPlan, 'training_name'))
-    certificate_number = fields.Field(column_name='Certificate Number', attribute='certificate_number')
-    issued_on = fields.Field(column_name='Issued On', attribute='issued_on', widget=DateWidget(format='%Y-%m-%d'))
+# -------------------------
+# TrainingPartner
+# -------------------------
+class TrainingPartnerResource(resources.ModelResource):
+    user = fields.Field(attribute="user", column_name="user_username", widget=ForeignKeyWidget(User, "username"))
+    mou_form = fields.Field(attribute="mou_form", column_name="mou_form", widget=FileWidget())
+    signed_report_file = fields.Field(attribute="signed_report_file", column_name="signed_report_file", widget=FileWidget())
 
     class Meta:
-        model = MasterTrainerCertificate
+        model = TrainingPartner
+        import_id_fields = ("id",)
         skip_unchanged = True
         report_skipped = True
-        import_id_fields = ('certificate_number',)
-        exclude = ('created_at',)
+        fields = (
+            "id", "user", "name", "contact_person", "contact_mobile", "email", "address",
+            "bank_name", "bank_branch", "bank_ifsc", "bank_account_number",
+            "tpm_registration_no", "mou_form", "signed_report_file",
+        )
+
+
+# -------------------------
+# TrainingPartnerSubmission
+# -------------------------
+class TrainingPartnerSubmissionResource(resources.ModelResource):
+    centre = fields.Field(attribute="centre", column_name="centre_id", widget=ForeignKeyWidget(TrainingPartnerCentre, "id"))
+    uploaded_by = fields.Field(attribute="uploaded_by", column_name="uploaded_by_username", widget=ForeignKeyWidget(User, "username"))
+    file = fields.Field(attribute="file", column_name="file", widget=FileWidget())
+
+    class Meta:
+        model = TrainingPartnerSubmission
+        import_id_fields = ("id",)
+        skip_unchanged = True
+        report_skipped = True
+        exclude = ("uploaded_on",)
+        fields = ("id", "centre", "category", "file", "uploaded_by", "notes")
+
+
+# -------------------------
+# TrainingPartnerTargets
+# -------------------------
+class TrainingPartnerTargetsResource(resources.ModelResource):
+    partner = fields.Field(attribute="partner", column_name="partner_name", widget=ForeignKeyWidget(TrainingPartner, "name"))
+    allocated_by = fields.Field(attribute="allocated_by", column_name="allocated_by_username", widget=ForeignKeyWidget(User, "username"))
+    evidence_file = fields.Field(attribute="evidence_file", column_name="evidence_file", widget=FileWidget())
+
+    class Meta:
+        model = TrainingPartnerTargets
+        import_id_fields = ("id",)
+        skip_unchanged = True
+        report_skipped = True
+        exclude = ("created_at",)
+        fields = ("id", "partner", "allocated_by", "target_type", "target_key", "target_count", "notes", "evidence_file")
+
+
+# -------------------------
+# TrainingRequest
+# -------------------------
+class TrainingRequestResource(resources.ModelResource):
+    training_plan = fields.Field(attribute="training_plan", column_name="training_plan_id", widget=ForeignKeyWidget(TrainingPlan, "id"))
+    partner = fields.Field(attribute="partner", column_name="partner_id", widget=ForeignKeyWidget(TrainingPartner, "id"))
+    created_by = fields.Field(attribute="created_by", column_name="created_by_username", widget=ForeignKeyWidget(User, "username"))
+
+    class Meta:
+        model = TrainingRequest
+        import_id_fields = ("id",)
+        skip_unchanged = True
+        report_skipped = True
+        fields = ("id", "code", "training_plan", "training_type", "partner", "level", "status", "rejection_reason", "created_by", "created_at")
+
+
+# -------------------------
+# Batch
+# -------------------------
+class BatchResource(resources.ModelResource):
+    request = fields.Field(attribute="request", column_name="training_request_id", widget=ForeignKeyWidget(TrainingRequest, "id"))
+    centre = fields.Field(attribute="centre", column_name="centre_id", widget=ForeignKeyWidget(TrainingPartnerCentre, "id"))
+    start_date = fields.Field(attribute="start_date", column_name="start_date", widget=DateWidget(format="%Y-%m-%d"))
+    end_date = fields.Field(attribute="end_date", column_name="end_date", widget=DateWidget(format="%Y-%m-%d"))
+
+    class Meta:
+        model = Batch
+        import_id_fields = ("id",)
+        skip_unchanged = True
+        report_skipped = True
+        fields = ("id", "code", "request", "centre", "start_date", "end_date", "created_at")

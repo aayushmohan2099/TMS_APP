@@ -22,7 +22,7 @@
                 <th>End</th>
                 <th>Trainers</th>
                 <th>Participants</th>
-                <th>Actions</th>
+                <th>E-KYC Verification Status</th>
               </tr>
             </thead>
             <tbody>
@@ -44,7 +44,7 @@
                         Verify eKYC
                       </button>
                     {% else %}
-                      <button class="btn btn-sm btn-outline-secondary ms-1" disabled>Verify eKYC</button>
+                      <button class="btn btn-sm btn-outline-secondary ms-1" disabled>PENDING</button>
                     {% endif %}
                   </td>
                 </tr>
@@ -81,10 +81,7 @@
                                       {% if t.full_name %}{{ t.full_name }}{% elif t.get_full_name %}{{ t.get_full_name }}{% else %}{{ t.username }}{% endif %}
                                     </td>
                                     <td>
-                                      {# If you pass trainer_cert_map to this template later, you can use it here.
-                                         For now, try to access t.certificates.latest by attribute if available, else show — #}
                                       {% if t.certificates.all %}
-                                        {# pick latest certificate relation if present (template-level best-effort, will call queryset) #}
                                         {% with cert=t.certificates.all|first %}
                                           {{ cert.certificate_number|default:"—" }}
                                         {% endwith %}

@@ -2,6 +2,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
+from django.utils.text import slugify
 
 # -------------------------
 # Core user model
@@ -22,6 +23,7 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+
 # -------------------------
 # District, Block, Panchayat, Village models
 # -------------------------
@@ -39,6 +41,7 @@ class Mandal(models.Model):
     def __str__(self):
         return self.name
 
+
 class District(models.Model):
     district_id = models.BigIntegerField(primary_key=True)   # API id
     district_code = models.CharField(max_length=50, blank=True, null=True)
@@ -49,7 +52,6 @@ class District(models.Model):
     lgd_code = models.CharField(max_length=64, blank=True, null=True)
     language_id = models.CharField(max_length=20, blank=True, null=True)
 
-    # mandal FK -> A mandal can have many districts (District belongs to one Mandal)
     mandal = models.ForeignKey(
         Mandal,
         on_delete=models.SET_NULL,
@@ -80,13 +82,10 @@ class Block(models.Model):
     language_id = models.CharField(max_length=20, blank=True, null=True)
     state_id = models.IntegerField(blank=True, null=True, db_index=True)
 
-    # relations
     district = models.ForeignKey(District, on_delete=models.CASCADE, related_name='blocks', db_index=True)
 
-    # optional convenience column if CSV contains district_name_en in block rows
     district_name_en = models.CharField(max_length=255, blank=True, null=True)
 
-    # aspirational (True/False)
     is_aspirational = models.BooleanField(default=False, db_index=True)
 
     class Meta:
@@ -111,7 +110,6 @@ class Panchayat(models.Model):
     lgd_code = models.CharField(max_length=64, blank=True, null=True)
     state_id = models.IntegerField(blank=True, null=True, db_index=True)
 
-    # relations
     district = models.ForeignKey(District, on_delete=models.CASCADE, related_name='panchayats', db_index=True)
     block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name='panchayats', db_index=True)
 
@@ -136,9 +134,7 @@ class Village(models.Model):
     is_active = models.BooleanField(default=True, db_index=True)
     lgd_code = models.CharField(max_length=64, blank=True, null=True)
 
-    # relations
     panchayat = models.ForeignKey(Panchayat, on_delete=models.CASCADE, related_name='villages', db_index=True)
-    # duplicate parent ids for convenience / query speed
     state_id = models.IntegerField(blank=True, null=True, db_index=True)
     district_id = models.BigIntegerField(blank=True, null=True, db_index=True)
     block_id = models.BigIntegerField(blank=True, null=True, db_index=True)
@@ -153,6 +149,7 @@ class Village(models.Model):
 
     def __str__(self):
         return f"{self.village_name_english or self.village_id}"
+
 
 class DistrictCategory(models.Model):
     id = models.AutoField(primary_key=True)
@@ -171,6 +168,60 @@ class DistrictCategory(models.Model):
     def __str__(self):
         return f"{self.district} -> {self.category_name}"
 
+
+# -------------------------
+# TrainingPlan
+# -------------------------
+class TrainingPlan(models.Model):
+    id = models.AutoField(primary_key=True)
+    training_name = models.CharField("Training name", max_length=255)
+    theme = models.CharField("THEME", max_length=200, blank=True, null=True)
+
+    TYPE_CHOICES = [
+        ("RES", "Residential"),
+        ("NON RES", "Non-residential"),
+        ("OTHER", "Other"),
+    ]
+    type_of_training = models.CharField("Type of Training", max_length=20, choices=TYPE_CHOICES, default="OTHER")
+
+    LEVEL_CHOICES = [
+        ("VILLAGE", "Village"),
+        ("SHG", "SHG"),
+        ("CLF", "CLF"),
+        ("BLOCK", "Block"),
+        ("BLOCK_DISTRICT", "Block/District"),
+        ("CMTC/BLOCK", "CMTC/Block"),
+        ("DISTRICT", "District"),
+        ("STATE", "State"),
+        ("WITHIN_STATE", "Within State"),
+        ("OUTSIDE_STATE", "Outside State"),
+    ]
+    level_of_training = models.CharField("Level of training", max_length=32, choices=LEVEL_CHOICES, blank=True, null=True)
+
+    no_of_days = models.PositiveIntegerField("No of Days", blank=True, null=True)
+
+    APPROVAL_CHOICES = [
+        ("SANCTIONED", "Sanctioned"),
+        ("PENDING", "Pending"),
+        ("DENIED", "Denied"),
+    ]
+    approval_status = models.CharField("Approval of Training Plan", max_length=20, choices=APPROVAL_CHOICES, blank=True, null=True)
+
+    theme_expert = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='theme_training_plans')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Training Plan"
+        verbose_name_plural = "Training Plans"
+        indexes = [
+            models.Index(fields=['training_name']),
+            models.Index(fields=['theme']),
+        ]
+
+    def __str__(self):
+        return f"{self.training_name} ({self.theme or 'No theme'})"
+
+
 # -------------------------
 # Beneficiary
 # -------------------------
@@ -181,16 +232,16 @@ class Beneficiary(models.Model):
     state = models.CharField(max_length=150, blank=True, null=True, db_index=True)
     district = models.ForeignKey(
         District,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name='beneficiary_district',
         null=True, blank=True,
     )
     block = models.ForeignKey(
         Block,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name='beneficiary_block',
         null=True, blank=True,
-    )    
+    )
     gram_panchayat = models.CharField(max_length=150, blank=True, null=True)
     village = models.CharField(max_length=150, blank=True, null=True)
 
@@ -285,7 +336,6 @@ class MasterTrainer(models.Model):
         help_text="Optional link to User account for self-service login"
     )
 
-    # Primary Fields
     id = models.AutoField(primary_key=True)
     full_name = models.CharField(max_length=200)
     profile_picture = models.ImageField(upload_to='trainer_pfps/', blank=True, null=True)
@@ -299,7 +349,6 @@ class MasterTrainer(models.Model):
     marital_status = models.CharField(max_length=50, blank=True, null=True)
     parent_or_spouse_name = models.CharField("Father/Mother/Spouse Name", max_length=200, blank=True, null=True)
 
-    # extra fields that admin/forms expect
     skills = models.TextField("Skills / Thematic Sectors", blank=True, null=True)
     thematic_expert_recommendation = models.CharField(max_length=255, blank=True, null=True)
     success_rate = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
@@ -308,13 +357,11 @@ class MasterTrainer(models.Model):
     recommended_tots_by_dmmu = models.TextField(blank=True, null=True)
     success_story_publications = models.TextField(blank=True, null=True)
 
-    # Banking Details
     bank_account_number = models.CharField("Account Number", max_length=64, blank=True, null=True)
     ifsc = models.CharField("IFSC", max_length=32, blank=True, null=True)
     branch_name = models.CharField("Branch Name", max_length=200, blank=True, null=True)
     bank_name = models.CharField("Bank Name", max_length=200, blank=True, null=True)
 
-    # Secondary fields
     DESIGNATION_CHOICES = [
         ('DRP', 'DRP'),
         ('SRP', 'SRP'),
@@ -334,9 +381,9 @@ class MasterTrainer(models.Model):
         return self.full_name
 
 
-# -------------------------
+# ---------------------------------
 # TrainingPartner
-# -------------------------
+# ---------------------------------
 class TrainingPartner(models.Model):
     id = models.AutoField(primary_key=True)
 
@@ -348,16 +395,12 @@ class TrainingPartner(models.Model):
         related_name='training_partner_profile'
     )
 
-    # Standardized field names used across admin/resources/forms
     name = models.CharField(max_length=255)
     contact_person = models.CharField(max_length=200, blank=True, null=True)
     contact_mobile = models.CharField(max_length=30, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
     address = models.TextField(blank=True, null=True)
-    # optional additional location field referenced in admin
-    center_location = models.CharField(max_length=255, blank=True, null=True)
 
-    # Banking Details
     bank_name = models.CharField("Bank Name", max_length=255, blank=True, null=True)
     bank_branch = models.CharField("Branch", max_length=255, blank=True, null=True)
     bank_ifsc = models.CharField("IFSC / Routing", max_length=32, blank=True, null=True)
@@ -366,12 +409,7 @@ class TrainingPartner(models.Model):
     tpm_registration_no = models.CharField("Registration No (TPM/Org)", max_length=128, blank=True, null=True)
     mou_form = models.FileField("Signed MoU (PDF)", upload_to='partner_mous/', blank=True, null=True)
 
-    # fields referenced by admin/resources that were missing previously
-    certifications = models.TextField(blank=True, null=True)
     signed_report_file = models.FileField(upload_to='partner_signed_reports/', blank=True, null=True)
-    photographs_submission = models.TextField(blank=True, null=True, help_text="Summary / meta about photographs")
-    targets_allocated = models.TextField(blank=True, null=True, help_text="Optional summary of targets allocated")
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -385,58 +423,161 @@ class TrainingPartner(models.Model):
         return f"{self.name} ({self.tpm_registration_no or 'N/A'})"
 
 
-# -------------------------
-# TrainingPlan
-# -------------------------
-class TrainingPlan(models.Model):
+# ---------------------------------
+# TrainingPartnerCentre
+# ---------------------------------
+class TrainingPartnerCentre(models.Model):
     id = models.AutoField(primary_key=True)
-    training_name = models.CharField("Training name", max_length=255)
-    theme = models.CharField("THEME", max_length=200, blank=True, null=True)
+    partner = models.ForeignKey('TrainingPartner', on_delete=models.CASCADE, related_name='centres')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
 
-    TYPE_CHOICES = [
-        ("RES", "Residential"),
-        ("NON RES", "Non-residential"),
-        ("OTHER", "Other"),
-    ]
-    type_of_training = models.CharField("Type of Training", max_length=20, choices=TYPE_CHOICES, default="OTHER")
+    # Basic Details
+    serial_number = models.IntegerField(blank=True, null=True)
+    district = models.ForeignKey(
+        'District',
+        on_delete=models.SET_NULL,
+        related_name='trainingpartner_centre_district',
+        null=True, blank=True,
+    )
+    centre_coord_name = models.CharField("Coordinator Name", max_length=120, blank=True, null=True)
+    centre_coord_mob_number = models.CharField("Coordinator Mobile", max_length=30, blank=True, null=True)
 
-    LEVEL_CHOICES = [
-        ("VILLAGE", "Village"),
-        ("SHG", "SHG"),
-        ("CLF", "CLF"),
-        ("BLOCK", "Block"),
-        ("BLOCK_DISTRICT", "Block/District"),
-        ("CMTC/BLOCK", "CMTC/Block"),
-        ("DISTRICT", "District"),
-        ("STATE", "State"),
-        ("WITHIN_STATE", "Within State"),
-        ("OUTSIDE_STATE", "Outside State"),
-    ]
-    level_of_training = models.CharField("Level of training", max_length=32, choices=LEVEL_CHOICES, blank=True, null=True)
+    venue_name = models.CharField("Venue Name", max_length=120, blank=True, null=True)
+    venue_address = models.CharField("Venue Address", max_length=500, blank=True, null=True)
 
-    no_of_days = models.PositiveIntegerField("No of Days", blank=True, null=True)
+    # Accommodation details (rooms moved to separate model)
+    # Training Hall
+    training_hall_count = models.IntegerField("Number of Training Halls", blank=True, null=True)
+    training_hall_capacity = models.IntegerField("Training Hall Capacity (max 35 participants/batch)", blank=True, null=True)
 
-    APPROVAL_CHOICES = [
-        ("SANCTIONED", "Sanctioned"),
-        ("PENDING", "Pending"),
-        ("DENIED", "Denied"),
-    ]
-    approval_status = models.CharField("Approval of Training Plan", max_length=20, choices=APPROVAL_CHOICES, blank=True, null=True)
+    # Facilities
+    security_arrangements = models.CharField("Security Arrangements", max_length=255, blank=True, null=True)
+    toilets_bathrooms = models.IntegerField("Total Toilets/Bathrooms", blank=True, null=True)
+    power_water_facility = models.CharField("Power/Water Availability", max_length=255, blank=True, null=True)
+    medical_kit = models.BooleanField("Medical Kit Available", default=False)
+    centre_type = models.CharField("Centre Type (Private/Govt/Lodge/Rented)", max_length=255, blank=True, null=True)
+    open_space = models.BooleanField("Open Space for Group Activity", default=False)
+    field_visit_facility = models.BooleanField("Field Visit Facility", default=False)
+    transport_facility = models.BooleanField("Transport Facility", default=False)
+    dining_facility = models.BooleanField("Dining Room Facility", default=False)
+    other_details = models.TextField("Other Details", blank=True, null=True)
 
-    # fields referenced by admin/resources
-    theme_expert = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='theme_training_plans')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = "Training Plan"
-        verbose_name_plural = "Training Plans"
+        verbose_name = "Training Partner Centre"
+        verbose_name_plural = "Training Partner Centres"
         indexes = [
-            models.Index(fields=['training_name']),
-            models.Index(fields=['theme']),
+            models.Index(fields=['partner', 'district']),
         ]
 
     def __str__(self):
-        return f"{self.training_name} ({self.theme or 'No theme'})"
+        return f"{self.partner.name} - {self.venue_name or 'Unnamed Centre'}"
+
+
+# -------------------------
+# TrainingPartnerCentreRooms
+# -------------------------
+class TrainingPartnerCentreRooms(models.Model):
+    id = models.AutoField(primary_key=True)
+    centre = models.ForeignKey(TrainingPartnerCentre, on_delete=models.CASCADE, related_name='rooms')
+    room_name = models.CharField("Room Name/Number", max_length=100, blank=True, null=True)
+    room_capacity = models.IntegerField("Room Capacity (max 20 per room)", blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Training Partner Centre Room"
+        verbose_name_plural = "Training Partner Centre Rooms"
+
+    def __str__(self):
+        return f"{self.centre.venue_name or 'Centre'} - {self.room_name or 'Room'}"
+
+
+# -------------------------
+# TrainingPartnerSubmission
+# -------------------------
+class TrainingPartnerSubmission(models.Model):
+    CATEGORY_CHOICES = [
+        ('FOODING', 'Fooding'),
+        ('TOILET', 'Toilet'),
+        ('CENTRE_FRONT', 'Centre (front)'),
+        ('HOSTEL', 'Hostel'),
+        ('CCTV_SECURITY', 'CCTV SECURITY'),
+        ('ACTIVITY_HALL', 'Activity Hall'),
+        ('OTHER', 'Other'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    centre = models.ForeignKey(TrainingPartnerCentre, on_delete=models.CASCADE, related_name='submissions', blank=True, null=True)
+    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES, default='OTHER')
+    file = models.FileField(upload_to='partner_photos_or_pdfs/', blank=True, null=True,
+                            help_text='Upload image (jpeg/png) or a PDF containing required photos.')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    uploaded_on = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Training Partner Submission"
+        verbose_name_plural = "Training Partner Submissions"
+        indexes = [
+            models.Index(fields=['centre', 'category']),
+        ]
+
+    def __str__(self):
+        centre_name = getattr(self.centre, 'venue_name', str(self.centre))
+        return f"{centre_name} - {self.category} ({self.uploaded_on:%Y-%m-%d})"
+
+# -------------------------
+# Training Request
+# -------------------------
+class TrainingRequest(models.Model):
+    id = models.AutoField(primary_key=True)
+    code = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    training_plan = models.ForeignKey(TrainingPlan, on_delete=models.PROTECT, related_name='training_requests')
+
+    # beneficiaries chosen by BMMU/DMMU/SMMU when making the request
+    # this uses through model below (BeneficiaryBatchRegistration) which links a beneficiary -> training request
+    beneficiaries = models.ManyToManyField(Beneficiary, blank=True, related_name='benefs_for_training', through='BeneficiaryBatchRegistration')
+
+    trainers = models.ManyToManyField(MasterTrainer, blank=True, related_name='trainers_for_training', through='TrainerBatchRegistration')
+    
+    TRAINING_TYPE_CHOICES = [
+        ('BENEFICIARY', 'Beneficiary'),
+        ('TRAINER', 'Master Trainer'),
+    ]
+    training_type = models.CharField("Applicable For", max_length=20, choices=TRAINING_TYPE_CHOICES)    
+    
+    partner = models.ForeignKey(TrainingPartner, on_delete=models.SET_NULL, null=True, blank=True, related_name='training_requests')
+
+    LEVEL_CHOICES = [
+        ('BLOCK', 'Block'),
+        ('DISTRICT', 'District'),
+        ('STATE', 'State')
+    ]
+    level = models.CharField(max_length=50, choices=LEVEL_CHOICES, default='BLOCK', blank=True, null=True)
+
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending Approval'),
+        ('ONGOING', 'Ongoing'),
+        ('COMPLETED', 'Completed'),
+        ('REJECTED', 'Rejected'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    rejection_reason = models.CharField(max_length=500, blank=True, null=True)
+
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_training_requests')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Training"
+        verbose_name_plural = "Trainings"
+        indexes = [
+            models.Index(fields=['partner', 'status']),
+            models.Index(fields=['training_plan']),
+        ]
+
+    def __str__(self):
+        return f"{self.code or f'TrainingRequest-{self.id}'} - {self.training_plan.training_name}"
 
 
 # -------------------------
@@ -444,67 +585,204 @@ class TrainingPlan(models.Model):
 # -------------------------
 class Batch(models.Model):
     id = models.AutoField(primary_key=True)
-    code = models.CharField(max_length=100, unique=True, blank=True, null=True)
-    training_plan = models.ForeignKey(TrainingPlan, on_delete=models.PROTECT, related_name='batches')
+    request = models.ForeignKey(TrainingRequest, on_delete=models.CASCADE, related_name='request_of_batch', blank=True, null=True)
+    trainers = models.ManyToManyField(MasterTrainer, blank=True, related_name='batches', through='TrainerBatchParticipation')
+    centre = models.ForeignKey(TrainingPartnerCentre, on_delete=models.SET_NULL, null=True, blank=True, related_name='centre_of_batch')
+
+    # autogenerated code field (see save())
+    code = models.CharField(max_length=255, unique=True, blank=True, null=True)
+
     start_date = models.DateField(blank=True, null=True)
     end_date = models.DateField(blank=True, null=True)
 
-    partner = models.ForeignKey(TrainingPartner, on_delete=models.SET_NULL, null=True, blank=True, related_name='batches')
-
-    STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
-        ('PENDING', 'Pending Approval'),
-        ('ONGOING', 'Ongoing'),
-        ('COMPLETED', 'Completed'),
-        ('REJECTED', 'Rejected'),
-    ]
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
-    centre_proposed = models.CharField("Centre (proposed by partner)", max_length=255, blank=True, null=True)
-
-    # submissions: many-to-many linking to TrainingPartnerSubmission (if you want photos per batch)
-    submissions = models.ManyToManyField('TrainingPartnerSubmission', blank=True, related_name='batches')
-
-    # Trainers and beneficiaries relation will remain ManyToMany for convenience,
-    # but meaningful meta stored in join models via through.
-    trainers = models.ManyToManyField(MasterTrainer, blank=True, related_name='batches', through='TrainerBatchParticipation')
-    beneficiaries = models.ManyToManyField(Beneficiary, blank=True, related_name='batches', through='BeneficiaryBatchRegistration')
-
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_batches')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Batch"
         verbose_name_plural = "Batches"
         indexes = [
-            models.Index(fields=['partner', 'status']),
-            models.Index(fields=['training_plan']),
+            models.Index(fields=['request', 'centre']),
         ]
 
     def __str__(self):
-        return f"{self.code or f'Batch-{self.id}'} - {self.training_plan.training_name}"
+        """
+        Safe stringification: never assume request or training_plan exist.
+        """
+        code_part = self.code or f"Batch-{self.id}"
+        try:
+            if self.request and getattr(self.request, "training_plan", None):
+                tp_name = getattr(self.request.training_plan, "training_name", None)
+                if tp_name:
+                    return f"{code_part} - {tp_name}"
+        except Exception:
+            # defensive fallback if any unexpected attribute access fails
+            pass
+        # last fallback: show request id if available, else just code
+        try:
+            req_part = f"Request-{self.request.id}" if self.request and getattr(self.request, "id", None) else ""
+        except Exception:
+            req_part = ""
+        return f"{code_part}" + (f" - {req_part}" if req_part else "")
+
+    def generate_code_parts(self):
+        """
+        Build components for the batch code:
+        [training_theme]-[location_name]-[state id]-[training-type]-[batch id]
+        - training_theme: training_plan.theme or training_name slugified
+        - location_name: derived from who created the TrainingRequest (BMMU/DMMU/SMMU) using assignment tables,
+                         or from the first beneficiary's block/district as a fallback.
+        - state id: attempt to read from district.state_id or beneficiary.state_id
+        - training-type: request.training_plan.type_of_training (like RES/NON RES/OTHER). We'll slugify it.
+        """
+        training_theme = self.request.training_plan.theme or self.request.training_plan.training_name
+        theme_part = slugify(str(training_theme))[:80]  # keep compact
+
+        # Determine location_name and state_id
+        location_name = 'unknown'
+        state_id_part = 'unknown'
+
+        # 1) Prefer assignments based on who created the request
+        creator = self.request.created_by
+        if creator:
+            # if BMMU, try to get BmmuBlockAssignment for that user
+            try:
+                bmmu_assign = getattr(creator, 'bmmu_block_assignment', None)
+                if bmmu_assign and bmmu_assign.block and self.request.level == 'BLOCK':
+                    location_name = slugify(str(bmmu_assign.block.block_name_en or bmmu_assign.block.block_id))[:80]
+                    # attempt to get state_id from block
+                    state_id_part = str(bmmu_assign.block.state_id) if getattr(bmmu_assign.block, 'state_id', None) else state_id_part
+            except Exception:
+                pass
+
+            # if DMMU, try to get DmmuDistrictAssignment
+            try:
+                dmmu_assign = getattr(creator, 'dmmu_district_assignment', None)
+                if dmmu_assign and dmmu_assign.district and self.request.level == 'DISTRICT':
+                    location_name = slugify(str(dmmu_assign.district.district_name_en or dmmu_assign.district.district_id))[:80]
+                    state_id_part = str(dmmu_assign.district.state_id) if getattr(dmmu_assign.district, 'state_id', None) else state_id_part
+            except Exception:
+                pass
+
+            # if SMMU (state level), fallback to creator username or 'state'
+            try:
+                if getattr(creator, 'role', None) == 'smmu' or self.request.level == 'STATE':
+                    # No explicit state model — use district from first beneficiary to determine state
+                    location_name = slugify(getattr(creator, 'username', 'state'))[:80]
+            except Exception:
+                pass
+
+        # 2) If nothing from assignments, try first beneficiary
+        if (location_name == 'unknown') and self.request.beneficiaries.exists():
+            first_benef = self.request.beneficiaries.first()
+            # try block name
+            if getattr(first_benef, 'block', None):
+                try:
+                    # if block is FK, we may attempt to fetch Block model's name
+                    if hasattr(first_benef.block, 'block_name_en'):
+                        location_name = slugify(str(first_benef.block.block_name_en or first_benef.block.block_id))[:80]
+                        state_id_part = str(getattr(first_benef.block, 'state_id', state_id_part))
+                except Exception:
+                    pass
+            # try district name
+            if location_name == 'unknown' and getattr(first_benef, 'district', None):
+                try:
+                    location_name = slugify(str(first_benef.district.district_name_en or first_benef.district.district_id))[:80]
+                    state_id_part = str(getattr(first_benef.district, 'state_id', state_id_part))
+                except Exception:
+                    pass
+            # try beneficiary.state field
+            if state_id_part == 'unknown' and getattr(first_benef, 'state_id', None):
+                state_id_part = str(first_benef.state_id)
+
+        # sanitize training-type
+        training_type = slugify(str(self.request.training_plan.type_of_training or 'OTHER'))[:40]
+
+        return theme_part, location_name, state_id_part, training_type
+
+    def save(self, *args, **kwargs):
+        # Save first so self.id exists, required for final part of code
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        # If code empty, generate it (ensures batch.id is available)
+        if not self.code:
+            theme_part, location_name, state_id_part, training_type = self.generate_code_parts()
+            # last part is batch id
+            batch_id_part = str(self.id)
+            code = f"{theme_part}-{location_name}-{state_id_part}-{training_type}-{batch_id_part}"
+            # make compact and max length protection
+            code = code.replace(' ', '-')
+            # ensure uniqueness by appending id (already included), and truncate to 255
+            code = code[:255]
+            # update
+            Batch.objects.filter(pk=self.pk).update(code=code)
+            # refresh instance attribute
+            self.code = code
 
 
 # -------------------------
-# (Missing) BeneficiaryBatchRegistration (join model used in Batch)
+# BeneficiaryBatchRegistration (join model used in TrainingRequest)
 # -------------------------
 class BeneficiaryBatchRegistration(models.Model):
     """
-    Join model for Beneficiary ↔ Batch registration. (Was referenced but not present.)
+    Join model for Beneficiary ↔ Training Request.
+    Stores which beneficiaries were attached to a TrainingRequest (and later mapped to Batches).
     """
     id = models.AutoField(primary_key=True)
-    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='registrations')
-    batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='beneficiary_registrations')
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='benefs_registrations')
+    training = models.ForeignKey(TrainingRequest, on_delete=models.CASCADE, related_name='beneficiary_registrations', blank=True, null=True)
     registered_on = models.DateTimeField(auto_now_add=True)
     attended = models.BooleanField(default=False)
     remarks = models.TextField(blank=True, null=True)
 
     class Meta:
-        unique_together = ('beneficiary', 'batch')
+        unique_together = ('beneficiary', 'training')
         verbose_name = "Beneficiary Batch Registration"
         verbose_name_plural = "Beneficiary Batch Registrations"
 
     def __str__(self):
-        return f"{self.beneficiary.member_name or self.beneficiary.member_code} - {self.batch.code or self.batch.id}"
+        """
+        Safe display for admin and logs: handle missing beneficiary or training gracefully.
+        """
+        beneficiary_label = "Beneficiary"
+        try:
+            if self.beneficiary:
+                beneficiary_label = self.beneficiary.member_name or self.beneficiary.member_code or "Beneficiary"
+        except Exception:
+            beneficiary_label = "Beneficiary"
+
+        training_label = ""
+        try:
+            if self.training:
+                training_label = f" - {self.training.code or f'ID-{self.training.id}'}"
+        except Exception:
+            training_label = ""
+
+        return f"{beneficiary_label}{training_label}"
+
+
+# -------------------------
+# TrainerBatchRegistration (join model used in TrainingRequest)
+# -------------------------
+class TrainerBatchRegistration(models.Model):
+    """
+    Join model for Master Trainer ↔ Training Request.
+    Stores which trainers were attached to a TrainingRequest (and later mapped to Batches).
+    """
+    id = models.AutoField(primary_key=True)
+    trainer = models.ForeignKey(MasterTrainer, on_delete=models.CASCADE, related_name='trainer_registrations')
+    training = models.ForeignKey(TrainingRequest, on_delete=models.CASCADE, related_name='trainer_request_for_training')
+    registered_on = models.DateTimeField(auto_now_add=True)
+    attended = models.BooleanField(default=False)
+    remarks = models.TextField(blank=True, null=True)
+
+    class Meta:
+        unique_together = ('trainer', 'training')
+        verbose_name = "Trainer Batch Registration"
+        verbose_name_plural = "Trainer Batch Registrations"
+
+    def __str__(self):
+        return f"{self.trainer.full_name or self.trainer.id} - {self.training.code or self.training.id}"
 
 
 # -------------------------
@@ -549,18 +827,17 @@ class MasterTrainerAssignment(models.Model):
 # TrainerBatchParticipation
 # -------------------------
 class TrainerBatchParticipation(models.Model):
-    STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
-        ('ONGOING', 'Ongoing'),
-        ('COMPLETED', 'Completed'),
-        ('CANCELLED', 'Cancelled'),
-    ]
-
     id = models.AutoField(primary_key=True)
     trainer = models.ForeignKey(MasterTrainer, on_delete=models.CASCADE, related_name='trainerparticipations')
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='trainerparticipations')
     participated = models.BooleanField(default=False)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
+
+    STATUS_CHOICES = [
+        ('AVAILABLE', 'Available'),
+        ('UNAVAILABLE', 'Unavailable'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE', blank=True, null=True)
+
     remarks = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -570,7 +847,19 @@ class TrainerBatchParticipation(models.Model):
         verbose_name_plural = "Trainer Batch Participations"
 
     def __str__(self):
-        return f"{self.trainer.full_name} - {self.batch.code or self.batch.id} [{self.status}]"
+        """
+        Safe display of trainer participation; don't assume trainer or batch exist or have names.
+        """
+        trainer_name = getattr(self.trainer, "full_name", None) or f"Trainer-{getattr(self.trainer, 'id', '')}"
+        batch_code = ""
+        try:
+            if self.batch:
+                batch_code = getattr(self.batch, "code", None) or (f"Batch-{getattr(self.batch, 'id', '')}" if getattr(self.batch, 'id', None) else "")
+        except Exception:
+            batch_code = ""
+        status = self.status or ""
+        return f"{trainer_name}" + (f" - {batch_code}" if batch_code else "") + (f" [{status}]" if status else "")
+
 
 
 # -------------------------
@@ -635,40 +924,6 @@ class MasterTrainerExpertise(models.Model):
 
     def __str__(self):
         return f"{self.trainer.full_name} -> {self.training_plan.training_name}"
-
-
-# -------------------------
-# TrainingPartnerSubmission
-# -------------------------
-class TrainingPartnerSubmission(models.Model):
-    CATEGORY_CHOICES = [
-        ('FOODING', 'Fooding'),
-        ('TOILET', 'Toilet'),
-        ('CENTRE_FRONT', 'Centre (front)'),
-        ('HOSTEL', 'Hostel'),
-        ('ACTIVITY_HALL', 'Activity Hall'),
-        ('OTHER', 'Other'),
-    ]
-
-    id = models.AutoField(primary_key=True)
-    partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='submissions')
-    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES, default='OTHER')
-    file = models.FileField(upload_to='partner_photos_or_pdfs/', blank=True, null=True,
-                            help_text='Upload image (jpeg/png) or a PDF containing required photos.')
-    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    uploaded_on = models.DateTimeField(auto_now_add=True)
-    notes = models.TextField(blank=True, null=True)
-
-    class Meta:
-        verbose_name = "Training Partner Submission"
-        verbose_name_plural = "Training Partner Submissions"
-        indexes = [
-            models.Index(fields=['partner', 'category']),
-        ]
-
-    def __str__(self):
-        partner_name = getattr(self.partner, 'name', str(self.partner))
-        return f"{partner_name} - {self.category} ({self.uploaded_on:%Y-%m-%d})"
 
 
 # -------------------------
@@ -774,6 +1029,7 @@ class TrainingPartnerBatch(models.Model):
     def __str__(self):
         return f"{self.partner.name} - {self.batch.code or self.batch.id} ({self.status})"
 
+
 # Which block has which BMMU?
 class BmmuBlockAssignment(models.Model):
     id = models.AutoField(primary_key=True)
@@ -796,6 +1052,7 @@ class BmmuBlockAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user.username} -> {self.block.block_name_en}"
+
 
 # Which district has which DMMU?
 class DmmuDistrictAssignment(models.Model):
@@ -820,15 +1077,15 @@ class DmmuDistrictAssignment(models.Model):
     def __str__(self):
         return f"{self.user.username} -> {self.district.district_name_en}"
 
+
 class SHG(models.Model):
     id = models.AutoField(primary_key=True)
 
-    # Geographical Data
     state = models.CharField(max_length=150, blank=True, null=True, db_index=True)
     district = models.ForeignKey(
         'District',
         on_delete=models.SET_NULL,
-        related_name='shgs',  # shorter name
+        related_name='shgs',
         null=True, blank=True,
     )
     block = models.ForeignKey(
@@ -838,12 +1095,10 @@ class SHG(models.Model):
         null=True, blank=True,
     )
 
-    # SHG Data
     shg_code = models.CharField("SHG Code", max_length=100, blank=False, null=False, db_index=True, unique=True)
     shg_name = models.CharField("SHG Name", max_length=200, blank=True, null=True)
     date_of_formation = models.DateField(blank=True, null=True)
 
-    # optional metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -855,9 +1110,6 @@ class SHG(models.Model):
             models.Index(fields=['shg_code']),
             models.Index(fields=['state']),
         ]
-        # If shg_code isn't globally unique in your data, comment the unique=True above
-        # and use:
-        # unique_together = ('shg_code', 'block')
 
     def __str__(self):
         return f"{self.shg_name or self.shg_code} ({self.shg_code})"
