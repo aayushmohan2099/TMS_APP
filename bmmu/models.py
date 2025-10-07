@@ -558,12 +558,13 @@ class TrainingRequest(models.Model):
     level = models.CharField(max_length=50, choices=LEVEL_CHOICES, default='BLOCK', blank=True, null=True)
 
     STATUS_CHOICES = [
+        ('BATCHING', 'Batching Phase'),
         ('PENDING', 'Pending Approval'),
         ('ONGOING', 'Ongoing'),
         ('COMPLETED', 'Completed'),
         ('REJECTED', 'Rejected'),
     ]
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='BATCHING')
     rejection_reason = models.CharField(max_length=500, blank=True, null=True)
 
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_training_requests')

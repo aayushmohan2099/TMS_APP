@@ -497,7 +497,7 @@
         </div>
       </div>
 
-      <!-- Beneficiary detail modal (new) -->
+      <!-- Beneficiary detail modal (updated with Edit) -->
       <div class="modal fade" id="beneficiaryDetailModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
           <div class="modal-content">
@@ -509,6 +509,9 @@
               <div class="text-center text-muted">Loading...</div>
             </div>
             <div class="modal-footer">
+              <button id="beneficiaryEditBtn" type="button" class="btn btn-outline-primary" style="display:none;">Edit</button>
+              <button id="beneficiaryCancelEditBtn" type="button" class="btn btn-secondary" style="display:none;" data-bs-dismiss="modal">Cancel</button>
+              <button id="beneficiarySaveBtn" type="button" class="btn btn-primary" style="display:none;">Save</button>
               <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
           </div>
@@ -554,6 +557,8 @@ const DELETE_POST_URL = "{% url 'bmmu_delete_beneficiaries' %}";
 
 // detail URL template uses Django reverse with a dummy pk (0), we will replace the '0' with actual pk
 const DETAIL_URL_TEMPLATE = "{% url 'bmmu_beneficiary_detail' 0 %}";
+// update/edit endpoint template (replace 0 with pk)
+const EDIT_URL_TEMPLATE = "{% url 'bmmu_beneficiary_update' 0 %}";
 
 function getCookie(name) {
   let cookieValue = null;
@@ -887,46 +892,220 @@ function renderDetailHtml(data) {
   return html;
 }
 
+/* ---------- New edit flow: build form, submit, refresh ---------- */
+
+// server-side editable fields (mirror EDITABLE_FIELDS in view)
+// CHANGED: use actual Beneficiary model field names
+const EDITABLE_FIELDS = [
+  'member_name','date_of_birth','shg_name','social_category',
+  'designation_in_shg_vo_clf','religion','gender','gram_panchayat',
+  'village','mobile_no','aadhaar_no','aadhar_kyc'
+];
+
+// friendly labels for the edit form
+const FIELD_LABELS = {
+  'member_name': 'Member Name',
+  'date_of_birth': 'Date of Birth',
+  'shg_name': 'SHG Name',
+  'social_category': 'Social Category',
+  'designation_in_shg_vo_clf': 'Designation',
+  'religion': 'Religion',
+  'gender': 'Gender',
+  'gram_panchayat': 'Gram Panchayat',
+  'village': 'Village',
+  'mobile_no': 'Mobile No.',
+  'aadhaar_no': 'Aadhaar No.',
+  'aadhar_kyc': 'Aadhar KYC'
+};
+
+function buildDetailHtml(data) {
+  let html = '<div class="container-fluid"><div class="row">';
+  for (const [k, v] of Object.entries(data)) {
+    const label = k.replace(/_/g, ' ');
+    const value = (v === null || v === undefined) ? '' : String(v);
+    html += `
+      <div class="col-12 col-md-6 mb-2">
+        <dl class="row mb-0">
+          <dt class="col-5 text-muted" style="font-weight:600;">${label}</dt>
+          <dd class="col-7 mb-0">${value}</dd>
+        </dl>
+      </div>
+    `;
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function buildEditFormHtml(data) {
+  let html = '<form id="beneficiaryEditForm" class="container-fluid">';
+  html += '<div class="row">';
+  for (const fld of EDITABLE_FIELDS) {
+    const label = FIELD_LABELS[fld] || fld.replace(/_/g,' ');
+    const rawVal = data[fld] === null || data[fld] === undefined ? '' : data[fld];
+    const val = (typeof rawVal === 'string') ? rawVal.replace(/"/g,'&quot;') : rawVal;
+    if (fld === 'date_of_birth') {
+      html += `
+        <div class="col-12 col-md-6 mb-2">
+          <label class="form-label">${label}</label>
+          <input class="form-control form-control-sm" name="${fld}" type="date" value="${val ? String(val).split('T')[0] : ''}">
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="col-12 col-md-6 mb-2">
+          <label class="form-label">${label}</label>
+          <input class="form-control form-control-sm" name="${fld}" type="text" value="${val}">
+        </div>
+      `;
+    }
+  }
+  html += '</div></form>';
+  return html;
+}
+
+function showBeneficiaryDetailModal(pk) {
+  let url = DETAIL_URL_TEMPLATE;
+  if (url.indexOf('/0/') !== -1) {
+    url = url.replace('/0/', `/${pk}/`);
+  } else if (url.endsWith('0/')) {
+    url = url.replace(/0\/$/, `${pk}/`);
+  } else {
+    url = url.replace(/0$/, pk);
+  }
+
+  const bodyEl = document.getElementById('beneficiaryDetailModalBody');
+  const editBtn = document.getElementById('beneficiaryEditBtn');
+  const saveBtn = document.getElementById('beneficiarySaveBtn');
+  const cancelEditBtn = document.getElementById('beneficiaryCancelEditBtn');
+
+  if (bodyEl) bodyEl.innerHTML = '<div class="text-center text-muted">Loading...</div>';
+  editBtn.style.display = 'none';
+  saveBtn.style.display = 'none';
+  cancelEditBtn.style.display = 'none';
+
+  fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(resp => {
+      if (!resp.ok) throw new Error('Failed to fetch beneficiary details');
+      return resp.json();
+    })
+    .then(json => {
+      if (!json || !json.ok || !json.data) throw new Error('Invalid response');
+      const data = json.data;
+      if (bodyEl) bodyEl.innerHTML = buildDetailHtml(data);
+      editBtn.style.display = '';
+      saveBtn.style.display = 'none';
+      cancelEditBtn.style.display = 'none';
+
+      editBtn.onclick = function() {
+        enterEditMode(pk, data);
+      };
+
+      const modalEl = document.getElementById('beneficiaryDetailModal');
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
+    })
+    .catch(err => {
+      console.error('Error loading beneficiary details', err);
+      const body = document.getElementById('beneficiaryDetailModalBody');
+      if (body) body.innerHTML = '<div class="alert alert-danger">Unable to load beneficiary details.</div>';
+    });
+}
+
+function enterEditMode(pk, data) {
+  const bodyEl = document.getElementById('beneficiaryDetailModalBody');
+  const editBtn = document.getElementById('beneficiaryEditBtn');
+  const saveBtn = document.getElementById('beneficiarySaveBtn');
+  const cancelEditBtn = document.getElementById('beneficiaryCancelEditBtn');
+
+  if (bodyEl) bodyEl.innerHTML = buildEditFormHtml(data);
+  editBtn.style.display = 'none';
+  saveBtn.style.display = '';
+  cancelEditBtn.style.display = '';
+
+  saveBtn.onclick = function() {
+    submitBeneficiaryEdit(pk);
+  };
+
+  cancelEditBtn.onclick = function() {
+    showBeneficiaryDetailModal(pk);
+  };
+}
+
+function showModalAlert(message, type='success') {
+  const body = document.getElementById('beneficiaryDetailModalBody');
+  if (!body) return alert(message);
+  // remove previous alert if any
+  const prev = document.getElementById('modalInlineAlert');
+  if (prev) prev.remove();
+  const alertHtml = `
+    <div id="modalInlineAlert" class="alert alert-${type} alert-dismissible fade show" role="alert" style="margin-bottom:12px;">
+      ${message}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  `;
+  body.insertAdjacentHTML('afterbegin', alertHtml);
+  setTimeout(()=> {
+    const el = document.getElementById('modalInlineAlert');
+    if (el) {
+      try { bootstrap.Alert.getOrCreateInstance(el).close(); } catch(e){ el.remove(); }
+    }
+  }, 4000);
+}
+
+function submitBeneficiaryEdit(pk) {
+  const form = document.getElementById('beneficiaryEditForm');
+  if (!form) return showModalAlert('Form not found.', 'danger');
+
+  const fd = new FormData(form);
+  const payload = {};
+  for (const [k,v] of fd.entries()) payload[k] = v;
+
+  let url = EDIT_URL_TEMPLATE;
+  if (url.indexOf('/0/') !== -1) url = url.replace('/0/', `/${pk}/`);
+  else if (url.endsWith('0/')) url = url.replace(/0\/$/, `${pk}/`);
+  else url = url.replace(/0$/, pk);
+
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': CSRF_TOKEN,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+  .then(async r => {
+    const body = await r.json().catch(()=>null);
+    if (!body) throw new Error('Invalid server response');
+    if (!body.ok) {
+      const err = body.error || 'Update failed';
+      const errMsg = (typeof err === 'string') ? err : JSON.stringify(err);
+      showModalAlert(errMsg, 'danger');
+      throw new Error(errMsg);
+    }
+    // success
+    showModalAlert(body.message || 'Successfully updated beneficiary details!', 'success');
+    // refresh detail and fragment after small delay so user sees message
+    setTimeout(()=> {
+      showBeneficiaryDetailModal(pk);
+      const params = currentParams();
+      reloadFragmentWithParams(params);
+    }, 700);
+  })
+  .catch(err => {
+    console.error('Update error', err);
+  });
+}
+
+// hook row clicks to use the new modal function (replaces previous handler)
 function attachRowClickHandlers() {
   document.querySelectorAll('#beneficiariesTable tbody tr[data-pk]').forEach(tr => {
-    if (tr._detailListener) return; // avoid double-bind
+    if (tr._detailListener) return;
     tr.addEventListener('click', function (e) {
-      // don't open modal when clicking on inputs/links/buttons inside row
       if (e.target.closest('input,button,a,select')) return;
       const pk = this.dataset.pk;
       if (!pk) return;
-
-      // construct URL from template. Replace '/0/' segment with '/<pk>/'.
-      let url = DETAIL_URL_TEMPLATE;
-      if (url.indexOf('/0/') !== -1) {
-        url = url.replace('/0/', `/${pk}/`);
-      } else if (url.endsWith('0/')) {
-        url = url.replace(/0\/$/, `${pk}/`);
-      } else {
-        // fallback: append pk
-        url = url.replace(/0$/, pk);
-      }
-
-      const bodyEl = document.getElementById('beneficiaryDetailModalBody');
-      if (bodyEl) bodyEl.innerHTML = '<div class="text-center text-muted">Loading...</div>';
-
-      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-        .then(resp => {
-          if (!resp.ok) throw new Error('Failed to fetch beneficiary details');
-          return resp.json();
-        })
-        .then(json => {
-          if (!json || !json.ok || !json.data) throw new Error('Invalid response');
-          const body = document.getElementById('beneficiaryDetailModalBody');
-          if (body) body.innerHTML = renderDetailHtml(json.data);
-          const modalEl = new bootstrap.Modal(document.getElementById('beneficiaryDetailModal'));
-          modalEl.show();
-        })
-        .catch(err => {
-          console.error('Error loading beneficiary details', err);
-          const body = document.getElementById('beneficiaryDetailModalBody');
-          if (body) body.innerHTML = '<div class="alert alert-danger">Unable to load beneficiary details.</div>';
-        });
+      showBeneficiaryDetailModal(pk);
     });
     tr._detailListener = true;
   });

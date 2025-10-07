@@ -12,7 +12,7 @@ from django.core.paginator import Paginator
 from django.template.loader import render_to_string
 from django.forms import modelform_factory
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.urls import reverse
 from django.db import transaction
 from django.conf import settings
@@ -31,10 +31,13 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils import timezone
 from django.db.models import Prefetch
-from datetime import date
+from datetime import date, datetime
 from django.db.models import OuterRef, Subquery
 from datetime import timedelta
 from django.db.utils import OperationalError
+from django.core.exceptions import ValidationError
+from django.utils.dateparse import parse_date
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -755,6 +758,155 @@ def bmmu_beneficiary_detail(request, pk):
 
     return JsonResponse({"ok": True, "data": data})
 
+@require_http_methods(["POST"])
+@login_required
+def bmmu_beneficiary_update(request, pk):
+    """
+    Robust update endpoint for Beneficiary used by the AJAX edit modal.
+    Accepts JSON or form-encoded POST. Supports client-side aliases (phone_number -> mobile_no, aadhaar_number -> aadhaar_no).
+    Returns JSON {ok, data, message} or {ok: False, error}.
+    """
+    # fetch the beneficiary
+    try:
+        beneficiary = Beneficiary.objects.select_related('district', 'block').get(pk=pk)
+    except Beneficiary.DoesNotExist:
+        return JsonResponse({"ok": False, "error": "Beneficiary not found."}, status=404)
+
+    # permission check (same as detail)
+    user_role = getattr(request.user, "role", "").lower()
+    if user_role == "bmmu":
+        assigned_block_ids = list(
+            BmmuBlockAssignment.objects.filter(user=request.user)
+            .values_list("block_id", flat=True)
+        )
+        if not assigned_block_ids or (beneficiary.block_id not in assigned_block_ids):
+            return JsonResponse({"ok": False, "error": "Not allowed"}, status=403)
+
+    # Read incoming data
+    data = {}
+    content_type = (request.META.get('CONTENT_TYPE') or request.content_type or '').lower()
+    if content_type.startswith('application/json'):
+        try:
+            data = json.loads(request.body.decode('utf-8') or "{}")
+        except Exception as e:
+            logger.exception("Invalid JSON payload for beneficiary update: %s", e)
+            return JsonResponse({"ok": False, "error": "Invalid JSON payload"}, status=400)
+    else:
+        data = request.POST.dict()
+
+    if not data:
+        return JsonResponse({"ok": False, "error": "No data provided"}, status=400)
+
+    # Model fields set
+    model_field_names = {f.name for f in Beneficiary._meta.fields}
+
+    # Client aliases -> actual model fields
+    ALIAS_MAP = {
+        'phone_number': 'mobile_no',
+        'mobile_no': 'mobile_no',
+        'aadhaar_number': 'aadhaar_no',
+        'aadhaar_no': 'aadhaar_no',
+        'aadhar_kyc': 'aadhar_kyc',
+        # add other friendly aliases here if needed
+    }
+
+    # Build a mapped dict: map incoming keys to actual model field names
+    mapped = {}
+    for key, val in data.items():
+        # prefer direct match
+        if key in model_field_names:
+            mapped[key] = val
+            continue
+        # try alias
+        if key in ALIAS_MAP:
+            tgt = ALIAS_MAP[key]
+            if tgt in model_field_names:
+                mapped[tgt] = val
+                continue
+        # also check lowercase/no-space variants if needed
+        low = key.lower().replace(' ', '_')
+        if low in model_field_names:
+            mapped[low] = val
+            continue
+        if low in ALIAS_MAP:
+            tgt = ALIAS_MAP[low]
+            if tgt in model_field_names:
+                mapped[tgt] = val
+                continue
+        # otherwise ignore unknown field
+
+    if not mapped:
+        return JsonResponse({"ok": False, "error": "No valid editable fields provided."}, status=400)
+
+    # Optional: explicit whitelist of editable fields (keeps control)
+    EDITABLE_WHITELIST = {
+        'member_name','date_of_birth','shg_name','social_category',
+        'designation_in_shg_vo_clf','religion','gender','gram_panchayat',
+        'village','mobile_no','aadhaar_no','aadhar_kyc'
+    }
+    writable = [k for k in mapped.keys() if k in model_field_names and (k in EDITABLE_WHITELIST)]
+
+    # If whitelist filtered everything out, allow intersection with model fields (more permissive)
+    if not writable:
+        writable = [k for k in mapped.keys() if k in model_field_names]
+
+    if not writable:
+        return JsonResponse({"ok": False, "error": "No writable fields after filtering."}, status=400)
+
+    changed = {}
+    for key in writable:
+        raw_val = mapped.get(key)
+        if raw_val == '':
+            val = None
+        else:
+            val = raw_val
+
+        # convert date_of_birth if provided
+        if key == 'date_of_birth' and val:
+            parsed = parse_date(val)  # returns date or None
+            if parsed:
+                val = parsed
+            # else leave as-is and let validation catch it
+
+        try:
+            old = getattr(beneficiary, key)
+        except Exception:
+            old = None
+
+        # Compare and set (note: DB fields might be date objects)
+        try:
+            if old != val:
+                setattr(beneficiary, key, val)
+                changed[key] = {'old': old, 'new': val}
+        except Exception as e:
+            logger.exception("Failed to set attribute %s on Beneficiary %s: %s", key, pk, e)
+
+    if not changed:
+        return JsonResponse({"ok": True, "data": {}, "message": "No changes detected."})
+
+    # Validate + save
+    try:
+        beneficiary.full_clean()
+        beneficiary.save()
+    except ValidationError as ve:
+        logger.warning("Validation error updating beneficiary %s: %s", pk, ve)
+        return JsonResponse({"ok": False, "error": ve.message_dict}, status=400)
+    except Exception as e:
+        logger.exception("Error saving beneficiary %s: %s", pk, e)
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+    logger.info("Beneficiary %s updated fields: %s by user=%s", pk, list(changed.keys()), request.user.username)
+
+    resp_data = {}
+    for f in writable:
+        val = getattr(beneficiary, f, None)
+        if hasattr(val, 'isoformat'):
+            resp_data[f] = val.isoformat()
+        else:
+            resp_data[f] = val
+
+    return JsonResponse({"ok": True, "data": resp_data, "message": "Successfully updated beneficiary details!"})
+
 @login_required
 def bmmu_dashboard(request):
     if getattr(request.user, "role", "").lower() != 'bmmu':
@@ -1248,7 +1400,7 @@ def training_partner_dashboard(request):
     partner = _get_partner_for_user(request.user)
 
     # TrainingRequest: show PENDING requests that are either unassigned or assigned to this partner
-    requests_qs = TrainingRequest.objects.filter(status='PENDING').order_by('-created_at')
+    requests_qs = TrainingRequest.objects.filter(status='BATCHING').order_by('-created_at')
     if partner:
         reqs_for_partner = requests_qs.filter(Q(partner__isnull=True) | Q(partner=partner))
     else:
@@ -1711,13 +1863,90 @@ def partner_view_request(request, request_id):
 
     return render(request, 'training_partner/view_batch.html', context)
 
+@login_required
+def partner_view_requests(request):
+    """
+    Small list page showing TrainingRequests assigned to the logged-in Training Partner.
+    Columns: Request ID, Training Plan, Applicable for, Created by, Status (last).
+    """
+    if getattr(request.user, "role", "").lower() != "training_partner":
+        return HttpResponseForbidden("Not authorized")
+
+    partner = _get_partner_for_user(request.user)
+    if not partner:
+        return HttpResponseForbidden("No partner profile")
+
+    # Query training requests assigned to this partner
+    qs = TrainingRequest.objects.filter(partner=partner).select_related('training_plan', 'created_by').order_by('-created_at')
+
+    # Optional: basic search by training name or request id
+    q = request.GET.get('q', '').strip()
+    if q:
+        # try simple search on training name, training_plan or id
+        qs = qs.filter(
+            Q(id__icontains=q) |
+            Q(training_plan__training_name__icontains=q) |
+            Q(training_plan__training_code__icontains=q)
+        )
+
+    # Pagination (small page)
+    page = int(request.GET.get('page', 1) or 1)
+    per_page = 25
+    paginator = Paginator(qs, per_page)
+    page_obj = paginator.get_page(page)
+
+    # prepare display rows with fallbacks
+    rows = []
+    for tr in page_obj:
+        # Training plan display
+        tp = getattr(tr, 'training_plan', None)
+        tp_name = getattr(tp, 'training_name', None) or getattr(tp, 'name', None) or '—'
+        # Applicable for: try common fields; fall back to level or '—'
+        applicable = getattr(tr, 'applicable_for', None) or getattr(tr, 'applicable_to', None) or getattr(tr, 'level', None) or '—'
+        # Created by
+        creator = getattr(tr, 'created_by', None)
+        creator_name = None
+        if creator:
+            creator_name = (getattr(creator, 'get_full_name', None) and creator.get_full_name()) or getattr(creator, 'username', None) or str(creator)
+        else:
+            creator_name = '—'
+        # status
+        status = getattr(tr, 'status', '—')
+        # updated/created timestamp
+        updated = getattr(tr, 'updated_at', None) or getattr(tr, 'modified_at', None) or getattr(tr, 'created_at', None)
+        updated_display = updated.isoformat() if updated else '—'
+
+        rows.append({
+            'id': tr.id,
+            'code': getattr(tr, 'code', None) or getattr(tr, 'request_code', None),
+            'training_plan': tp_name,
+            'applicable': applicable,
+            'created_by': creator_name,
+            'status': status,
+            'updated': updated_display,
+            'object': tr,
+        })
+
+    context = {
+        'partner': partner,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'rows': rows,
+        'q': q,
+    }
+    return render(request, 'training_partner/partner_requests_list.html', context)
 
 @login_required
 @require_POST
 def partner_create_batches(request, request_id=None):
     """
     Creates Batch rows from a TrainingRequest and selected centres.
-    (Full function - replaces earlier version. Adjust small field names if needed.)
+
+    Improvements:
+    - Accepts per-centre explicit 'beneficiaries' lists in payload (used when provided).
+    - Falls back to the older "distribute remaining beneficiaries by capacity" when no per-centre list is provided.
+    - Removes payload-assigned beneficiaries from the remaining pool to avoid duplicates.
+    - After successful creation, sets TrainingRequest.status to 'PENDING' (Pending Approval) when available.
     """
     if getattr(request.user, "role", "").lower() != "training_partner":
         return JsonResponse({'ok': False, 'error': 'unauthorized'}, status=403)
@@ -1756,7 +1985,7 @@ def partner_create_batches(request, request_id=None):
     if not centres:
         return JsonResponse({'ok': False, 'error': 'No centres provided'}, status=400)
 
-    # Validate centres: ensure they belong to partner
+    # Validate centres: ensure they belong to partner, and capture any explicit beneficiaries lists
     selected_centres = []
     for c in centres:
         cid = c.get('centre_id') or c.get('id')
@@ -1771,9 +2000,24 @@ def partner_create_batches(request, request_id=None):
             return JsonResponse({'ok': False, 'error': f'Centre {cid} not registered to you'}, status=403)
         cap = c.get('capacity') or getattr(centre_obj, 'training_hall_capacity', None) or 0
         start = c.get('start') or default_start
-        selected_centres.append({'centre': centre_obj, 'capacity': int(cap or 0), 'start': start})
 
-    # Now allocate beneficiaries in order across centres, capping at capacity
+        # normalize any explicit beneficiaries list (client side may send 'beneficiaries' key)
+        payload_bens = c.get('beneficiaries') or c.get('assigned') or c.get('assigned_ids') or None
+        if payload_bens and isinstance(payload_bens, list):
+            try:
+                payload_bens = [int(x) for x in payload_bens]
+            except Exception:
+                payload_bens = None
+
+        selected_centres.append({
+            'centre': centre_obj,
+            'capacity': int(cap or 0),
+            'start': start,
+            'payload_beneficiaries': payload_bens
+        })
+
+    # Now allocate beneficiaries using explicit payload lists when provided,
+    # otherwise fall back to slicing from the remaining pool by capacity.
     allocations = []
     remaining = ben_ids[:]  # make a copy
     days = getattr(tr.training_plan, 'no_of_days', None) or 1
@@ -1783,14 +2027,32 @@ def partner_create_batches(request, request_id=None):
         days = 1
 
     for sc in selected_centres:
-        if not remaining:
-            break
-        cap = sc['capacity'] or 0
-        if cap <= 0:
+        if not remaining and not sc.get('payload_beneficiaries'):
+            # nothing left to assign and no explicit payload list provided -> skip
             continue
-        assign = remaining[:cap]
-        remaining = remaining[cap:]
-        # compute end date if start provided
+
+        cap = sc['capacity'] or 0
+
+        # If caller provided explicit beneficiaries for this centre, use those (but ensure they exist in remaining)
+        assigned = []
+        if sc.get('payload_beneficiaries'):
+            # only take IDs that belong to the original training request and still remain unassigned
+            assigned_candidate = [int(x) for x in sc['payload_beneficiaries'] if int(x) in remaining]
+            # If capacity is set and candidate exceeds capacity, trim to capacity
+            if cap and len(assigned_candidate) > cap:
+                assigned_candidate = assigned_candidate[:cap]
+            assigned = assigned_candidate
+            # remove assigned from remaining
+            remaining = [r for r in remaining if r not in assigned]
+        else:
+            # no explicit payload list: assign next `cap` from remaining
+            if cap <= 0:
+                assigned = []
+            else:
+                assigned = remaining[:cap]
+                remaining = remaining[cap:]
+
+        # compute start date if provided
         start_date = None
         end_date = None
         if sc['start']:
@@ -1803,20 +2065,22 @@ def partner_create_batches(request, request_id=None):
                     start_date = None
         if start_date:
             end_date = start_date + timedelta(days=days)
+
+        # Only create allocation if we have at least one assigned beneficiary
         allocations.append({
             'centre': sc['centre'],
-            'assigned': assign,
+            'assigned': assigned,
             'start': start_date,
             'end': end_date
         })
 
+    # After processing all centres, if there are still unassigned beneficiaries -> capacity insufficient
     if remaining:
-        # capacity insufficient: return helpful message
         return JsonResponse({
             'ok': False,
-            'error': 'Selected centres capacity insufficient for all beneficiaries',
+            'error': 'Selected centres capacity insufficient for all beneficiaries (or some beneficiaries were not included in payload assignments).',
             'remaining_count': len(remaining),
-            'remaining_ids_sample': remaining[:10]
+            'remaining_ids_sample': remaining[:20]
         }, status=400)
 
     created = []
@@ -1825,6 +2089,10 @@ def partner_create_batches(request, request_id=None):
             for alloc in allocations:
                 centre_obj = alloc['centre']
                 assigned_bens = alloc['assigned'] or []
+                # skip empty allocations (do not create zero-participant batch)
+                if not assigned_bens:
+                    continue
+
                 start_date = alloc['start']
                 end_date = alloc['end']
 
@@ -1879,41 +2147,45 @@ def partner_create_batches(request, request_id=None):
             if not tr.partner and partner:
                 tr.partner = partner
 
-            # mark training request status so it drops from request lists
+            # --- NEW: explicitly set request status to PENDING (Pending Approval) after batching ---
             try:
-                tr.status = 'PROPOSED' if 'PROPOSED' in [c[0] for c in tr._meta.get_field('status').choices] else 'PENDING'
+                status_choices = [c[0] for c in tr._meta.get_field('status').choices]
+                if 'PENDING' in status_choices:
+                    tr.status = 'PENDING'
+                elif 'PROPOSED' in status_choices:
+                    # backward fallback if your project uses PROPOSED instead
+                    tr.status = 'PROPOSED'
+                else:
+                    # fallback to first available choice or PENDING
+                    tr.status = status_choices[0] if status_choices else 'PENDING'
             except Exception:
                 tr.status = 'PENDING'
+
             tr.save()
 
     except Exception as e:
         logger.exception("partner_create_batches: failed creating batches: %s", e)
         return JsonResponse({'ok': False, 'error': 'server error creating batches'}, status=500)
 
-    # --- Notification recipients logic (NEW: use TrainingRequest.level mapping) ---
+    # --- Notification recipients logic (unchanged) ---
     try:
         recipients = []
         level = getattr(tr, 'level', '')
         level_upper = level.upper() if level else ''
 
         if level_upper == 'BLOCK':
-            # Send to DMMU of that district of the BMMU user who created the TrainingRequest (tr.created_by)
             creator = getattr(tr, 'created_by', None)
             if creator:
-                # Try to find creator's block->district assignment model (BmmuBlockAssignment) - defensive
                 try:
-                    # if the project has BmmuBlockAssignment with .block.district
                     assignments = BmmuBlockAssignment.objects.filter(user=creator).select_related('block__district')
                     for a in assignments:
                         district = getattr(a.block, 'district', None)
                         if district:
-                            # find DMMU users associated with this district (best-effort)
                             dmmu_users = User.objects.filter(role__iexact='dmmu', profile__district=district)
                             for u in dmmu_users:
                                 if getattr(u, 'email', None):
                                     recipients.append(u.email)
                 except Exception:
-                    # fallback: try to locate a district property on creator and find DMMU users by district
                     try:
                         district = getattr(creator, 'district', None)
                         if district:
@@ -1925,7 +2197,6 @@ def partner_create_batches(request, request_id=None):
                         pass
 
         elif level_upper in ('DISTRICT', 'STATE'):
-            # Send to SMMU of that theme (use training_plan.theme_expert)
             tp = getattr(tr, 'training_plan', None)
             if tp and getattr(tp, 'theme_expert', None):
                 expert = tp.theme_expert
@@ -1957,7 +2228,18 @@ def partner_ongoing_trainings(request):
     if not partner:
         return HttpResponseForbidden("No partner profile")
 
-    today = timezone.localdate()
+    # Use explicit India timezone so "today" matches Lucknow / Asia/Kolkata
+    try:
+        india_tz = ZoneInfo("Asia/Kolkata")
+    except Exception:
+        # fallback to Django timezone localtime if ZoneInfo not available
+        india_tz = None
+
+    if india_tz:
+        today = datetime.now(tz=india_tz).date()
+    else:
+        # last-resort: use Django timezone (may be server-local)
+        today = timezone.localdate()
 
     # read filter from querystring; default to 'all'
     status_param = (request.GET.get('status') or 'all').strip().lower()
@@ -1965,9 +2247,77 @@ def partner_ongoing_trainings(request):
     # base queryset for the partner
     batches_qs = Batch.objects.filter(request__partner=partner)
 
+    # --- AUTO-UPDATE statuses based on start_date / end_date (safe, idempotent) ---
+    try:
+        # discover valid tokens from model choices
+        try:
+            status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
+        except Exception:
+            status_choices = []
+
+        def find_choice_token(name):
+            for tok in status_choices:
+                if str(tok).upper() == str(name).upper():
+                    return tok
+            return None
+
+        ongoing_token = find_choice_token('ONGOING') or find_choice_token('Ongoing') or 'ONGOING'
+        completed_token = find_choice_token('COMPLETED') or find_choice_token('Completed') or 'COMPLETED'
+        # optional: scheduled token fallback
+        scheduled_token = find_choice_token('SCHEDULED') or find_choice_token('Scheduled') or 'SCHEDULED'
+
+        # consider batches that belong to this partner (not already completed)
+        candidates = batches_qs.filter(~Q(status__iexact=completed_token))
+
+        for b in candidates:
+            try:
+                # Normalize batch start/end to date
+                raw_start = getattr(b, 'start_date', None)
+                raw_end = getattr(b, 'end_date', None)
+
+                start_date = None
+                end_date = None
+
+                if raw_start is not None:
+                    if isinstance(raw_start, datetime):
+                        start_date = raw_start.date()
+                    elif isinstance(raw_start, date):
+                        start_date = raw_start
+
+                if raw_end is not None:
+                    if isinstance(raw_end, datetime):
+                        end_date = raw_end.date()
+                    elif isinstance(raw_end, date):
+                        end_date = raw_end
+
+                current_status = (getattr(b, 'status', '') or '').strip()
+
+                # If end_date is in the past -> mark completed (optional)
+                # Uncomment the block below if you want automatic completion:
+                # if end_date and end_date < today:
+                #     if current_status.upper() != str(completed_token).upper():
+                #         b.status = completed_token
+                #         b.save(update_fields=['status'])
+                #     continue
+
+                # If start_date is today -> set ONGOING (unless already ongoing)
+                if start_date and start_date == today:
+                    if not current_status or current_status.upper() != str(ongoing_token).upper():
+                        b.status = ongoing_token
+                        b.save(update_fields=['status'])
+                        logger.info("partner_ongoing_trainings: auto-set batch %s -> %s (start_date == today %s)", getattr(b, 'id', None), ongoing_token, today)
+
+                # If start_date is in future and status is empty -> ensure SCHEDULED (optional)
+                # if start_date and start_date > today and (not current_status or current_status.upper() not in [str(scheduled_token).upper(), str(ongoing_token).upper()]):
+                #     b.status = scheduled_token
+                #     b.save(update_fields=['status'])
+            except Exception:
+                logger.exception("partner_ongoing_trainings: failed to auto-update status for batch %s", getattr(b, 'id', 'unknown'))
+    except Exception:
+        logger.exception("partner_ongoing_trainings: auto-update status step failed, continuing without updates")
+
     # apply status filter if not 'all'
     if status_param != 'all':
-        # allow filtering by any status string (case-insensitive)
         batches_qs = batches_qs.filter(status__iexact=status_param)
 
     # optimize related objects used in template
@@ -1996,8 +2346,6 @@ def partner_ongoing_trainings(request):
         setattr(b, 'trainers_list', trainers_list)
         setattr(b, 'beneficiaries_list', beneficiaries_list)
 
-    # OPTIONAL: prepare status options for the template (so dropdown can list available statuses)
-    # you can pass a static list or generate using distinct() on DB. Here a small helpful set:
     status_options = ['all', 'ONGOING', 'COMPLETED', 'SCHEDULED', 'CANCELLED']
 
     context = {
@@ -2009,7 +2357,6 @@ def partner_ongoing_trainings(request):
     }
     return render(request, 'training_partner/ongoing_list.html', context)
 
-
 @login_required
 def attendance_per_batch(request, batch_id):
     # fetch batch + related to minimize queries
@@ -2017,7 +2364,18 @@ def attendance_per_batch(request, batch_id):
         Batch.objects.select_related('request__training_plan', 'centre').prefetch_related('trainers'),
         id=batch_id
     )
-    today = timezone.localdate()
+    # Use explicit India timezone so "today" matches Lucknow / Asia/Kolkata
+    try:
+        india_tz = ZoneInfo("Asia/Kolkata")
+    except Exception:
+        # fallback to Django timezone localtime if ZoneInfo not available
+        india_tz = None
+
+    if india_tz:
+        today = datetime.now(tz=india_tz).date()
+    else:
+        # last-resort: use Django timezone (may be server-local)
+        today = timezone.localdate()
 
     # attach training_plan for template
     training_plan = getattr(batch.request, 'training_plan', None) if getattr(batch, 'request', None) else None

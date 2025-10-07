@@ -66,7 +66,7 @@
                 </span>
               </td>
               <td>
-                {% if b.start_date == today %}
+                {% if b.status|lower == 'ongoing' or b.start_date == today %}
                   <a href="{% url 'attendance_per_batch' b.id %}" class="btn btn-sm btn-outline-primary">
                     Verify / Manage
                   </a>

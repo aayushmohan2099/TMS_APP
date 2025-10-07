@@ -1,0 +1,86 @@
+{% extends "training_partner/base_partner.html" %}
+{% load humanize %}
+{% block title %}All Training Requests{% endblock %}
+{% block header_title %}All Training Requests{% endblock %}
+{% block header_subtitle %}Requests assigned to {{ partner.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Assigned Training Requests</h5>
+      <form method="get" class="d-flex">
+        <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm me-2" placeholder="Search by ID or training name">
+        <button class="btn btn-sm btn-outline-primary">Search</button>
+      </form>
+    </div>
+
+    {% if rows %}
+      <div class="table-responsive">
+        <table class="table table-striped table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="width:90px;">Request</th>
+              <th>Training Plan</th>
+              <th style="width:160px;">Applicable for</th>
+              <th style="width:180px;">Created by</th>
+              <th style="width:120px;">Status</th>
+              <th style="width:160px;">Last updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+              <tr>
+                <td>
+                  <div><strong>#{{ r.id }}</strong></div>
+                  {% if r.code %}<small class="text-muted">{{ r.code }}</small>{% endif %}
+                </td>
+                <td>{{ r.training_plan }}</td>
+                <td>{{ r.applicable }}</td>
+                <td>{{ r.created_by }}</td>
+                <td>
+                  <span class="badge bg-{% if r.status|lower == 'pending' or r.status|lower == 'pending approval' %}warning{% elif r.status|lower == 'ongoing' %}success{% elif r.status|lower == 'completed' %}secondary{% else %}secondary{% endif %}">
+                    {{ r.status|title }}
+                  </span>
+                </td>
+                <td><small class="text-muted">{{ r.updated|default:"—" }}</small></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <nav class="mt-3" aria-label="pagination">
+        <ul class="pagination justify-content-center">
+          {% if page_obj.has_previous %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if q %}&q={{ q }}{% endif %}">Previous</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+          {% endif %}
+
+          {% for num in paginator.page_range %}
+            {% if page_obj.number == num %}
+              <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+            {% elif num > page_obj.number|add:'-4' and num < page_obj.number|add:'4' %}
+              <li class="page-item"><a class="page-link" href="?page={{ num }}{% if q %}&q={{ q }}{% endif %}">{{ num }}</a></li>
+            {% endif %}
+          {% endfor %}
+
+          {% if page_obj.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}{% if q %}&q={{ q }}{% endif %}">Next</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Next</span></li>
+          {% endif %}
+        </ul>
+      </nav>
+
+    {% else %}
+      <div class="text-muted py-4">No training requests assigned to you.</div>
+    {% endif %}
+
+    <div class="mt-3 text-end">
+      <a href="{% url 'training_partner_dashboard' %}" class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

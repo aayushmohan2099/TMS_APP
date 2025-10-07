@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'bmmu',
     'import_export',
     'widget_tweaks',
+    'django.contrib.humanize',
 ]
 
 MIDDLEWARE = [

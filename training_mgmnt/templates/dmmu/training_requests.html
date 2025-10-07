@@ -17,23 +17,33 @@
       </thead>
       <tbody>
         {% for tr in requests %}
-          <tr>
-            <td>{{ tr.id }}</td>
-            <td>{{ tr.training_plan.training_name }}</td>
-            <td>{{ tr.training_plan.theme }}</td>
-            <td>{{ tr.level }}</td>
-            <td>
-              {% if tr.created_by %}
-                {{ tr.created_by.get_full_name|default:tr.created_by.username }}
-              {% else %}
-                &mdash;
-              {% endif %}
-            </td>
-            <td>{{ tr.beneficiaries.count }}</td>
-            <td>
-              <a class="btn btn-sm btn-primary" href="{% url 'dmmu_request_detail' tr.id %}">Open</a>
-            </td>
-          </tr>
+          {% with status=tr.status|default:""|upper %}
+            <tr>
+              <td>{{ tr.id }}</td>
+              <td>{{ tr.training_plan.training_name }}</td>
+              <td>{{ tr.training_plan.theme }}</td>
+              <td>{{ tr.level }}</td>
+              <td>
+                {% if tr.created_by %}
+                  {{ tr.created_by.get_full_name|default:tr.created_by.username }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>{{ tr.beneficiaries.count }}</td>
+              <td>
+                {% if status == "ONGOING" %}
+                  <span class="badge bg-success">Approved</span>
+                {% elif status == "COMPLETED" %}
+                  <span class="badge bg-secondary">Completed</span>
+                {% elif status == "REJECTED" %}
+                  <span class="badge bg-danger">Rejected</span>
+                {% else %}
+                  <a class="btn btn-sm btn-primary" href="{% url 'dmmu_request_detail' tr.id %}">Open</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endwith %}
         {% endfor %}
       </tbody>
     </table>

@@ -26,6 +26,7 @@ urlpatterns = [
     path("bmmu/delete/", views.bmmu_delete_beneficiaries, name="bmmu_delete_beneficiaries"),
 
     path('beneficiary/<int:pk>/', views.bmmu_beneficiary_detail, name='bmmu_beneficiary_detail'),
+    path('beneficiary/<int:pk>/update/', views.bmmu_beneficiary_update, name='bmmu_beneficiary_update'),
 
     # Training Program Management Portal (Batch Creator)
     path('tms/create_batch/', views.tms_create_batch, name='tms_create_batch'),
@@ -38,6 +39,7 @@ urlpatterns = [
     path("partner/", views.training_partner_dashboard, name="training_partner_dashboard"),
     path("partner/profile/", views.partner_profile, name="partner_profile"),
     path("partner/propose_dates/", views.partner_propose_dates, name="partner_propose_dates"),
+    path('partner/requests/', views.partner_view_requests, name='partner_view_requests'),
     path('partner/request/<int:request_id>/', views.partner_view_request, name='partner_view_request'),
     path('bmmu/partner/create_batches/<int:request_id>/', views.partner_create_batches, name='partner_create_batches'),
     path("partner/batch/<int:batch_id>/upload_attendance/", views.partner_upload_attendance, name="partner_upload_attendance"),
