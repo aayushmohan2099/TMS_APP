@@ -22,7 +22,7 @@ from .models import *
 
 from .resources import UserResource, BeneficiaryResource, TrainingPlanResource, MasterTrainerResource
 from .utils import export_blueprint
-from .forms import TrainingPlanForm, BatchNominateForm, TrainingPartnerProfileForm, PublicMasterTrainerProfileForm, TrainingPartnerSubmissionForm, SignupForm, MasterTrainerCertificateForm
+from .forms import *
 
 from django.db.models import Q, F
 
@@ -33,6 +33,7 @@ from django.utils import timezone
 from django.db.models import Prefetch
 from datetime import date
 from django.db.models import OuterRef, Subquery
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -435,15 +436,31 @@ def load_app_content(request, app_name):
                                 trainers_map[tp_id].append(t_id)
 
             # Live batches: ONGOING / PENDING if present otherwise recent
-            batch_status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
+            batch_status_choices = []
+            try:
+                batch_status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
+            except Exception:
+                batch_status_choices = []
             statuses_of_interest = [s for s in ('ONGOING', 'PENDING') if s in batch_status_choices]
+
+            # select related only on fields that actually exist on Batch
+            # Batch has 'request' and 'centre' FKs; training_plan and partner live on request
+            base_qs = Batch.objects.select_related('request', 'centre')
+
             if statuses_of_interest:
-                batch_qs = Batch.objects.filter(status__in=statuses_of_interest).select_related('training_plan', 'partner')[:200]
+                batch_qs = base_qs.filter(status__in=statuses_of_interest)[:200]
             else:
-                batch_qs = Batch.objects.all().select_related('training_plan', 'partner').order_by('-created_at')[:50]
+                batch_qs = base_qs.order_by('-created_at')[:50]
+
+            # prefetch the training_plan and partner via request to avoid extra queries
+            batch_qs = batch_qs.prefetch_related('request__training_plan', 'request__partner')
 
             for b in batch_qs:
-                tp = getattr(b, 'training_plan', None)
+                tp = None
+                try:
+                    tp = getattr(b.request, 'training_plan', None)
+                except Exception:
+                    tp = None
                 batches.append({
                     'id': b.id,
                     'code': b.code or f'Batch-{b.id}',
@@ -1220,75 +1237,68 @@ def master_trainer_profile(request):
 
 @login_required
 def training_partner_dashboard(request):
+    """
+    Training Partner dashboard — show TrainingRequests (assignments) that require partner action.
+    Defensive: does not assume Batch has 'partner' or 'status' fields. Uses Batch.request__partner where possible.
+    """
     if getattr(request.user, "role", "").lower() != "training_partner":
         return HttpResponseForbidden("Not authorized")
 
     partner = _get_partner_for_user(request.user)
-    if not partner:
-        assignments = Batch.objects.none()
-        approved = Batch.objects.none()
-        running = Batch.objects.none()
-        ongoing = Batch.objects.none()
+
+    # TrainingRequest: show PENDING requests that are either unassigned or assigned to this partner
+    requests_qs = TrainingRequest.objects.filter(status='PENDING').order_by('-created_at')
+    if partner:
+        reqs_for_partner = requests_qs.filter(Q(partner__isnull=True) | Q(partner=partner))
     else:
-        # Determine canonical status tokens present in model
-        status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
+        reqs_for_partner = requests_qs.filter(partner__isnull=True)
+    assignments = reqs_for_partner[:200]
 
-        # Show "assignments" (requests that still require partner action).
-        # Exclude batches that have already been 'proposed' by partner or are already 'ongoing'/'completed'/'rejected'.
-        exclude_statuses = []
-        for s in ('PROPOSED', 'ONGOING', 'COMPLETED', 'REJECTED'):
-            if s in status_choices:
-                exclude_statuses.append(s)
-        # also accept lowercase 'proposed' token if defined (robust)
-        if 'proposed' in [x.lower() for x in status_choices] and 'PROPOSED' not in exclude_statuses:
-            # find the canonical token whose lowercase is 'proposed'
-            for s in status_choices:
-                if s.lower() == 'proposed':
-                    exclude_statuses.append(s)
-                    break
+    # Build "ongoing" batches for this partner, but do NOT reference Batch.partner since your model lacks it.
+    ongoing = Batch.objects.none()
+    try:
+        # First attempt: use Batch.request relation to find batches whose TrainingRequest is assigned to this partner.
+        # This assumes Batch has a ForeignKey 'request' (your trace shows 'request' exists).
+        if partner:
+            # Prefer batches linked to TrainingRequests assigned to this partner and that are currently active by date.
+            today = timezone.now().date()
+            # if Batch has start_date & end_date fields (your trace shows they exist) consider date-range ongoing
+            field_names = [f.name for f in Batch._meta.fields]
+            has_dates = 'start_date' in field_names and 'end_date' in field_names
 
-        if exclude_statuses:
-            assignments_qs = Batch.objects.filter(partner=partner).exclude(status__in=exclude_statuses).order_by('-created_at')
+            if has_dates:
+                ongoing_qs = Batch.objects.filter(
+                    request__partner=partner,
+                    start_date__lte=today,
+                    end_date__gte=today
+                ).select_related('training_plan')[:50]
+            else:
+                # No dates: fall back to recent batches for this partner via request relation
+                ongoing_qs = Batch.objects.filter(request__partner=partner).select_related('training_plan')[:50]
+
+            # If the query returned nothing, also try to return recent batches linked to partner requests (no date filter)
+            if not ongoing_qs.exists():
+                ongoing_qs = Batch.objects.filter(request__partner=partner).select_related('training_plan')[:50]
+
+            ongoing = ongoing_qs
         else:
-            assignments_qs = Batch.objects.filter(partner=partner).order_by('-created_at')
-
-        # approved (for reference)
-        approved_token = None
-        for t in ('APPROVED', 'approved', 'Approved'):
-            if t in status_choices:
-                approved_token = t; break
-        if approved_token:
-            approved_qs = Batch.objects.filter(partner=partner, status=approved_token).order_by('-start_date')[:50]
-        else:
-            approved_qs = Batch.objects.none()
-
-        # Ongoing batches (for Quick Actions modal)
-        ongoing_tokens = [t for t in status_choices if t.upper() == 'ONGOING' or t.lower() == 'ongoing']
-        if ongoing_tokens:
-            ongoing_qs = Batch.objects.filter(partner=partner, status__in=ongoing_tokens).select_related('training_plan', 'partner').order_by('start_date')
-        else:
-            ongoing_qs = Batch.objects.none()
-
-        # running/perhaps used elsewhere (keep backward compatible)
-        running_tokens = [t for t in status_choices if t.upper() == 'ONGOING' or t.lower() == 'running']
-        if running_tokens:
-            running_qs = Batch.objects.filter(partner=partner, status__in=running_tokens).order_by('-start_date')[:50]
-        else:
-            running_qs = Batch.objects.none()
-
-        assignments = assignments_qs
-        approved = approved_qs
-        running = running_qs
-        ongoing = ongoing_qs
+            # No partner object: show recent batches (safe fallback)
+            ongoing = Batch.objects.all().select_related('training_plan').order_by('-created_at')[:50]
+    except Exception:
+        # Any unexpected model schema issue -> safe fallback: recent batches (no partner filter)
+        try:
+            ongoing = Batch.objects.all().select_related('training_plan').order_by('-created_at')[:50]
+        except Exception:
+            ongoing = Batch.objects.none()
 
     context = {
         'partner': partner,
-        'assignments': assignments,
-        'approved': approved,
-        'running': running,
+        'training_requests': assignments,
+        'assignments': assignments,  # backward compatibility for templates
         'ongoing': ongoing,
     }
     return render(request, 'training_partner/dashboard.html', context)
+
 
 
 @login_required
@@ -1317,42 +1327,133 @@ def partner_profile(request):
 @login_required
 def training_partner_centre_registration(request):
     """
-    Centre Registration: list existing TrainingPartnerSubmission rows for the partner
-    and allow uploading new submission (category, file, notes).
+    Centre Registration page:
+    - Left: list of centres (click to edit)
+    - Right: 'Add new centre' button (reveals full form). When a centre is selected (?centre_id=NN) the right side shows edit/delete + submissions.
     """
     if getattr(request.user, "role", "").lower() != "training_partner":
         return HttpResponseForbidden("Not authorized")
 
+    # ensure partner exists (best-effort)
     partner = _get_partner_for_user(request.user)
     if not partner:
-        # create minimal partner skeleton so they can fill profile later
         partner = TrainingPartner.objects.create(user=request.user, name=request.user.get_full_name() or request.user.username)
         request.user.refresh_from_db()
 
-    # list existing submissions for this partner (latest first)
-    submissions_qs = TrainingPartnerSubmission.objects.filter(partner=partner).order_by('-uploaded_on')[:200]
+    centre_id = request.GET.get("centre_id") or request.POST.get("centre_id")
+    centre_instance = None
+    if centre_id:
+        try:
+            centre_instance = TrainingPartnerCentre.objects.get(id=centre_id, partner=partner)
+        except TrainingPartnerCentre.DoesNotExist:
+            centre_instance = None
 
-    # handle POST upload
-    if request.method == 'POST':
-        form = TrainingPartnerSubmissionForm(request.POST, request.FILES)
-        if form.is_valid():
-            sub = form.save(commit=False)
-            sub.partner = partner
-            sub.uploaded_by = request.user
-            sub.save()
-            messages.success(request, "Submission uploaded.")
-            return redirect('training_partner_centre_registration')
-        else:
-            messages.error(request, "Fix errors below.")
+    partner_centres_qs = TrainingPartnerCentre.objects.filter(partner=partner).order_by("-created_at")
+
+    # Submissions: only show those for the selected centre; otherwise show recent across centres
+    submissions_qs = TrainingPartnerSubmission.objects.none()
+    if centre_instance:
+        submissions_qs = TrainingPartnerSubmission.objects.filter(centre=centre_instance).order_by("-uploaded_on")[:200]
     else:
-        form = TrainingPartnerSubmissionForm()
+        centre_ids = list(partner_centres_qs.values_list("id", flat=True))
+        if centre_ids:
+            submissions_qs = TrainingPartnerSubmission.objects.filter(centre_id__in=centre_ids).order_by("-uploaded_on")[:200]
+
+    # initialize forms (POST handling below)
+    if request.method == "POST":
+        # Save centre + rooms
+        if "save_centre" in request.POST:
+            form = TrainingPartnerCentreForm(request.POST, instance=centre_instance)
+            rooms_formset = TrainingPartnerCentreRoomsFormSet(request.POST, instance=centre_instance)
+            if form.is_valid() and rooms_formset.is_valid():
+                try:
+                    with transaction.atomic():
+                        centre = form.save(commit=False)
+                        centre.partner = partner
+                        centre.uploaded_by = request.user
+                        centre.save()
+                        rooms_formset.instance = centre
+                        rooms_formset.save()
+                        messages.success(request, "Centre saved successfully.")
+                        return redirect(f"{reverse('training_partner_centre_registration')}?centre_id={centre.id}")
+                except Exception as e:
+                    messages.error(request, f"Failed to save centre: {e}")
+            else:
+                messages.error(request, "Fix errors in centre or rooms form.")
+        # Upload submissions (multiple files)
+        elif "upload_submissions" in request.POST:
+            if not centre_instance:
+                messages.error(request, "Select or save a centre first.")
+            else:
+                submission_form = TrainingPartnerSubmissionForm(request.POST, request.FILES)
+                # We use the form for category/notes validation; actual files via submission_files input (multiple)
+                if submission_form.is_valid():
+                    category = submission_form.cleaned_data.get("category")
+                    notes = submission_form.cleaned_data.get("notes")
+                    files = request.FILES.getlist("submission_files")
+                    if not files:
+                        messages.error(request, "No files selected.")
+                    else:
+                        uploaded = 0
+                        for f in files:
+                            try:
+                                sub = TrainingPartnerSubmission(
+                                    centre=centre_instance,
+                                    category=category,
+                                    file=f,
+                                    uploaded_by=request.user,
+                                    notes=notes
+                                )
+                                sub.save()
+                                uploaded += 1
+                            except Exception as e:
+                                messages.error(request, f"Upload failed for {getattr(f, 'name', '')}: {e}")
+                        if uploaded:
+                            messages.success(request, f"Uploaded {uploaded} file(s).")
+                            return redirect(f"{reverse('training_partner_centre_registration')}?centre_id={centre_instance.id}")
+                else:
+                    messages.error(request, "Fix errors in submission form.")
+        elif "delete_submission" in request.POST:
+            sid = request.POST.get("submission_id")
+            if sid and centre_instance:
+                try:
+                    s = TrainingPartnerSubmission.objects.get(id=sid, centre=centre_instance)
+                    s.delete()
+                    messages.success(request, "Submission deleted.")
+                except TrainingPartnerSubmission.DoesNotExist:
+                    messages.error(request, "Submission not found.")
+            return redirect(f"{reverse('training_partner_centre_registration')}?centre_id={centre_instance.id}" if centre_instance else reverse('training_partner_centre_registration'))
+        elif "delete_centre" in request.POST:
+            if centre_instance:
+                try:
+                    centre_instance.delete()
+                    messages.success(request, "Centre deleted.")
+                except Exception as e:
+                    messages.error(request, f"Could not delete centre: {e}")
+            return redirect(reverse('training_partner_centre_registration'))
+        else:
+            messages.error(request, "Unknown action.")
+    else:
+        # GET: unbound forms
+        form = TrainingPartnerCentreForm(instance=centre_instance)
+        rooms_formset = TrainingPartnerCentreRoomsFormSet(instance=centre_instance)
+        submission_form = TrainingPartnerSubmissionForm()
+
+    # ensure submission_form exists
+    if request.method == "POST" and 'submission_form' not in locals():
+        submission_form = TrainingPartnerSubmissionForm()
 
     context = {
-        'partner': partner,
-        'submissions': submissions_qs,
-        'form': form,
+        "partner": partner,
+        "centre": centre_instance,
+        "partner_centres": partner_centres_qs,
+        "form": form,
+        "rooms_formset": rooms_formset,
+        "submission_form": submission_form,
+        "submissions": submissions_qs,
     }
-    return render(request, 'training_partner/centre_registration.html', context)
+    return render(request, "training_partner/centre_registration.html", context)
+
 
 @require_POST
 @login_required
@@ -1450,56 +1551,100 @@ def partner_propose_dates(request):
     return JsonResponse({'ok': True, 'new_status': getattr(batch, 'status', None)})
 
 @login_required
-def partner_view_batch(request, batch_id):
+def partner_view_request(request, request_id):
+    """
+    Render detail page for a TrainingRequest (anchored on TrainingRequest).
+    Adds safe display fields to beneficiaries so templates don't fail on missing attrs.
+    """
     if getattr(request.user, "role", "").lower() != "training_partner":
         return HttpResponseForbidden("Not authorized")
 
     partner = _get_partner_for_user(request.user)
-    batch = get_object_or_404(Batch, id=batch_id)
+    training_request = get_object_or_404(TrainingRequest, id=request_id)
 
-    if partner is None or batch.partner_id != partner.id:
-        return HttpResponseForbidden("Not your batch")
+    # Only allow partner assigned to request or any partner if request has no partner yet
+    if training_request.partner and (partner is None or training_request.partner_id != partner.id):
+        return HttpResponseForbidden("Not authorized for this TrainingRequest")
 
-    submissions = []
-    if partner:
-        try:
-            submissions = TrainingPartnerSubmission.objects.filter(partner=partner).order_by('-uploaded_on')[:8]
-        except Exception:
-            # fallback if TrainingPartnerSubmission import/path is different OR related_name used
+    # gather partner's registered centres
+    try:
+        centre_qs = TrainingPartnerCentre.objects.filter(partner=partner).order_by('-training_hall_capacity') if partner else TrainingPartnerCentre.objects.none()
+    except Exception:
+        centre_qs = TrainingPartnerCentre.objects.none()
+
+    # recent submissions (for preview) - defensive: try centre__partner, then uploaded_by fallback
+    submissions = TrainingPartnerSubmission.objects.none()
+    try:
+        submission_fields = [f.name for f in TrainingPartnerSubmission._meta.fields]
+        if 'centre' in submission_fields:
             try:
-                # try using the reverse manager if it exists
-                submissions = partner.trainingsubmission_set.all().order_by('-uploaded_on')[:8]
+                submissions = TrainingPartnerSubmission.objects.filter(centre__partner=partner).order_by('-uploaded_on')[:8]
             except Exception:
-                submissions = []
-    
-    # Build a mapping trainer_id -> latest certificate_number
-    trainer_cert_map = {}
-    # best-effort: pick latest by issued_on then created_at
-    cert_qs = MasterTrainerCertificate.objects.filter(trainer=OuterRef('pk')).order_by('-issued_on', '-created_at')
-    # We use Subquery to get certificate_number for each trainer if you prefer direct ORM; otherwise fallback to explicit loop:
-    trainer_ids = [t.id for t in batch.trainers.all()]
-    if trainer_ids:
-        certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
-        # iterate and keep first seen (which will be latest due to ordering per trainer_id group not guaranteed — so we do a dict and compare dates)
-        for c in certs:
-            # only keep certificate if not already set OR this one is newer
-            prev = trainer_cert_map.get(c.trainer_id)
-            if not prev:
-                trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+                centre_ids = [c.id for c in centre_qs] if centre_qs else []
+                if centre_ids:
+                    submissions = TrainingPartnerSubmission.objects.filter(centre_id__in=centre_ids).order_by('-uploaded_on')[:8]
+                else:
+                    submissions = TrainingPartnerSubmission.objects.none()
+        else:
+            if 'uploaded_by' in submission_fields:
+                submissions = TrainingPartnerSubmission.objects.filter(uploaded_by=request.user).order_by('-uploaded_on')[:8]
             else:
-                # compare issued_on (None-safe)
-                prev_issued = prev.get('issued_on')
-                cur_issued = c.issued_on
-                if (cur_issued and (not prev_issued or cur_issued > prev_issued)) or (not prev_issued and not cur_issued and c.created_at > prev.get('created_at')):
-                    trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
+                submissions = TrainingPartnerSubmission.objects.none()
+    except Exception:
+        try:
+            if 'uploaded_by' in [f.name for f in TrainingPartnerSubmission._meta.fields]:
+                submissions = TrainingPartnerSubmission.objects.filter(uploaded_by=request.user).order_by('-uploaded_on')[:8]
+            else:
+                submissions = TrainingPartnerSubmission.objects.none()
+        except Exception:
+            submissions = TrainingPartnerSubmission.objects.none()
 
-    # Simplify trainer_cert_map to map id -> certificate_number string (or None)
-    trainer_cert_map = {k: (v['certificate_number'] if v and v.get('certificate_number') else None) for k, v in trainer_cert_map.items()}
+    # beneficiaries list attached to TrainingRequest (through BeneficiaryBatchRegistration)
+    try:
+        beneficiaries_qs = training_request.beneficiaries.all().order_by('id')
+        beneficiaries = list(beneficiaries_qs)
+    except Exception:
+        beneficiaries = []
 
-    # Compute age for beneficiaries and attach .age attribute (int or None)
-    beneficiaries = list(batch.beneficiaries.all())  # evaluate once so attributes persist
+    # helper to safely pick first existing attribute value from a list of candidate names
+    def _first_attr(obj, candidates, default=None):
+        for attr in candidates:
+            try:
+                # use getattr with default sentinel to avoid raising AttributeError in property access
+                val = getattr(obj, attr, None)
+            except Exception:
+                # Some model properties may raise; ignore and continue
+                val = None
+            if val not in (None, ''):
+                return val
+        return default
+
+    # compute display-friendly attributes for each beneficiary to avoid missing-field lookups in templates
     today = date.today()
     for b in beneficiaries:
+        # display name
+        display_name = _first_attr(b, ['full_name', 'name', 'beneficiary_name', 'first_name', 'person_name'], default=None)
+        if display_name is None:
+            # fallback to str(b)
+            try:
+                display_name = str(b)
+            except Exception:
+                display_name = '-'
+        setattr(b, 'display_name', display_name)
+
+        # gender
+        gender_val = _first_attr(b, ['gender', 'sex', 'gender_display'], default='-')
+        setattr(b, 'gender_display', gender_val or '-')
+
+        # mobile / phone
+        mobile_val = _first_attr(b, ['mobile', 'phone', 'phone_number', 'contact', 'mobile_no'], default='-')
+        setattr(b, 'mobile_display', mobile_val or '-')
+
+        # village / location
+        village_val = _first_attr(b, ['village', 'village_name', 'address', 'habitation', 'location'], default='-')
+        setattr(b, 'village_display', village_val or '-')
+
+        # age (you already computed earlier; recompute here to be safe)
         dob = getattr(b, 'date_of_birth', None)
         age = None
         if dob:
@@ -1507,17 +1652,292 @@ def partner_view_batch(request, batch_id):
                 age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
             except Exception:
                 age = None
-        setattr(b, 'age', age)
+        setattr(b, 'age', age if age is not None else '-')
+
+    # trainer_cert_map (if trainers referenced)
+    trainer_cert_map = {}
+    try:
+        trainer_ids = [t.id for t in training_request.trainers.all()] if hasattr(training_request, 'trainers') else []
+        if trainer_ids:
+            certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
+            for c in certs:
+                prev = trainer_cert_map.get(c.trainer_id)
+                if not prev:
+                    trainer_cert_map[c.trainer_id] = c.certificate_number
+                else:
+                    try:
+                        trainer_cert_map[c.trainer_id] = c.certificate_number
+                    except Exception:
+                        trainer_cert_map[c.trainer_id] = c.certificate_number
+    except Exception:
+        trainer_cert_map = {}
 
     context = {
         'partner': partner,
-        'batch': batch,
+        'training_request': training_request,
+        'request': training_request,  # templates may expect 'request'
+        'partner_centres': centre_qs,
         'submissions': submissions,
         'trainer_cert_map': trainer_cert_map,
         'beneficiaries': beneficiaries,
         'today': today,
     }
+
+    # Reuse the training_partner/view_batch.html template: supply a shim batch object so the template works.
+    class _PseudoBatch:
+        def __init__(self, training_request):
+            self.request = training_request
+            self.training_plan = training_request.training_plan
+            self.trainers = training_request.trainers if hasattr(training_request, 'trainers') else []
+            self.beneficiaries = training_request.beneficiaries if hasattr(training_request, 'beneficiaries') else []
+            self.partner = training_request.partner
+            self.start_date = None
+            self.end_date = None
+            self.centre = None
+            self.centre_proposed = None
+            self.code = None
+            self.id = f"TR-{training_request.id}"
+
+    context['batch'] = _PseudoBatch(training_request)
+
     return render(request, 'training_partner/view_batch.html', context)
+
+
+@login_required
+@require_POST
+def partner_create_batches(request, request_id=None):
+    """
+    Creates Batch rows from a TrainingRequest and selected centres.
+    (Full function - replaces earlier version. Adjust small field names if needed.)
+    """
+    if getattr(request.user, "role", "").lower() != "training_partner":
+        return JsonResponse({'ok': False, 'error': 'unauthorized'}, status=403)
+
+    partner = _get_partner_for_user(request.user)
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': f'invalid json: {e}'}, status=400)
+
+    # prefer url param, then payload
+    training_request_id = request_id or payload.get('training_request_id') or payload.get('request_id') or payload.get('request')
+    if not training_request_id:
+        return JsonResponse({'ok': False, 'error': 'training_request_id required'}, status=400)
+
+    centres = payload.get('centres') or []
+    default_start = payload.get('default_start') or None
+
+    tr = get_object_or_404(TrainingRequest, id=training_request_id)
+
+    # Only the assigned partner (or if unassigned any partner) can create batches for this request
+    if tr.partner and (partner is None or tr.partner_id != partner.id):
+        return JsonResponse({'ok': False, 'error': 'TrainingRequest assigned to different partner'}, status=403)
+
+    # Collect beneficiary ids from TrainingRequest (through BeneficiaryBatchRegistration)
+    try:
+        ben_qs = tr.beneficiaries.all().order_by('id')
+    except Exception:
+        ben_qs = []
+    ben_ids = list(ben_qs.values_list('id', flat=True)) if hasattr(ben_qs, 'values_list') else list(ben_qs)
+    total_ben = len(ben_ids)
+    if total_ben == 0:
+        return JsonResponse({'ok': False, 'error': 'No beneficiaries attached to this TrainingRequest'}, status=400)
+
+    # If no centres selected -> error
+    if not centres:
+        return JsonResponse({'ok': False, 'error': 'No centres provided'}, status=400)
+
+    # Validate centres: ensure they belong to partner
+    selected_centres = []
+    for c in centres:
+        cid = c.get('centre_id') or c.get('id')
+        if not cid:
+            return JsonResponse({'ok': False, 'error': 'centre_id missing in centres list'}, status=400)
+        try:
+            centre_obj = TrainingPartnerCentre.objects.get(id=cid)
+        except TrainingPartnerCentre.DoesNotExist:
+            return JsonResponse({'ok': False, 'error': f'Centre {cid} not found'}, status=404)
+        # Ensure centre belongs to this partner (safety)
+        if partner and getattr(centre_obj, 'partner_id', None) != partner.id:
+            return JsonResponse({'ok': False, 'error': f'Centre {cid} not registered to you'}, status=403)
+        cap = c.get('capacity') or getattr(centre_obj, 'training_hall_capacity', None) or 0
+        start = c.get('start') or default_start
+        selected_centres.append({'centre': centre_obj, 'capacity': int(cap or 0), 'start': start})
+
+    # Now allocate beneficiaries in order across centres, capping at capacity
+    allocations = []
+    remaining = ben_ids[:]  # make a copy
+    days = getattr(tr.training_plan, 'no_of_days', None) or 1
+    try:
+        days = int(days)
+    except Exception:
+        days = 1
+
+    for sc in selected_centres:
+        if not remaining:
+            break
+        cap = sc['capacity'] or 0
+        if cap <= 0:
+            continue
+        assign = remaining[:cap]
+        remaining = remaining[cap:]
+        # compute end date if start provided
+        start_date = None
+        end_date = None
+        if sc['start']:
+            try:
+                start_date = timezone.datetime.fromisoformat(sc['start']).date()
+            except Exception:
+                try:
+                    start_date = timezone.datetime.strptime(sc['start'], '%Y-%m-%d').date()
+                except Exception:
+                    start_date = None
+        if start_date:
+            end_date = start_date + timedelta(days=days)
+        allocations.append({
+            'centre': sc['centre'],
+            'assigned': assign,
+            'start': start_date,
+            'end': end_date
+        })
+
+    if remaining:
+        # capacity insufficient: return helpful message
+        return JsonResponse({
+            'ok': False,
+            'error': 'Selected centres capacity insufficient for all beneficiaries',
+            'remaining_count': len(remaining),
+            'remaining_ids_sample': remaining[:10]
+        }, status=400)
+
+    created = []
+    try:
+        with transaction.atomic():
+            for alloc in allocations:
+                centre_obj = alloc['centre']
+                assigned_bens = alloc['assigned'] or []
+                start_date = alloc['start']
+                end_date = alloc['end']
+
+                batch = Batch.objects.create(
+                    request=tr,
+                    centre=centre_obj,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+
+                # set default status if the field exists and has choices
+                try:
+                    status_field = Batch._meta.get_field('status')
+                    choices = [c[0] for c in status_field.choices]
+                    if 'PENDING' in choices:
+                        batch.status = 'PENDING'
+                    elif 'PROPOSED' in choices:
+                        batch.status = 'PROPOSED'
+                    batch.save()
+                except Exception:
+                    # ignore if status field missing or odd
+                    batch.save()
+
+                # attach beneficiaries via BatchBeneficiary
+                if assigned_bens:
+                    assigned_bens = [int(x) for x in assigned_bens]
+                    now = timezone.now()
+                    bb_objects = []
+                    for ben_id in assigned_bens:
+                        if not BatchBeneficiary.objects.filter(batch=batch, beneficiary_id=ben_id).exists():
+                            bb_objects.append(BatchBeneficiary(batch=batch, beneficiary_id=ben_id, registered_on=now))
+                    if bb_objects:
+                        BatchBeneficiary.objects.bulk_create(bb_objects)
+
+                    # optional: annotate existing TrainingRequest registrations
+                    try:
+                        BeneficiaryBatchRegistration.objects.filter(training=tr, beneficiary_id__in=assigned_bens).update(
+                            remarks=F('remarks') + ' | Assigned to batch ' + (batch.code if batch.code else str(batch.id))
+                        )
+                    except Exception:
+                        pass
+
+                # set code if needed
+                if not getattr(batch, 'code', None):
+                    import uuid
+                    batch.code = 'B-' + str(uuid.uuid4())[:8]
+                    batch.save()
+
+                created.append({'batch_id': batch.id, 'batch_code': batch.code, 'centre_id': centre_obj.id, 'assigned_count': len(assigned_bens)})
+
+            # mark training_request.partner as this partner (if not already)
+            if not tr.partner and partner:
+                tr.partner = partner
+
+            # mark training request status so it drops from request lists
+            try:
+                tr.status = 'PROPOSED' if 'PROPOSED' in [c[0] for c in tr._meta.get_field('status').choices] else 'PENDING'
+            except Exception:
+                tr.status = 'PENDING'
+            tr.save()
+
+    except Exception as e:
+        logger.exception("partner_create_batches: failed creating batches: %s", e)
+        return JsonResponse({'ok': False, 'error': 'server error creating batches'}, status=500)
+
+    # --- Notification recipients logic (NEW: use TrainingRequest.level mapping) ---
+    try:
+        recipients = []
+        level = getattr(tr, 'level', '')
+        level_upper = level.upper() if level else ''
+
+        if level_upper == 'BLOCK':
+            # Send to DMMU of that district of the BMMU user who created the TrainingRequest (tr.created_by)
+            creator = getattr(tr, 'created_by', None)
+            if creator:
+                # Try to find creator's block->district assignment model (BmmuBlockAssignment) - defensive
+                try:
+                    # if the project has BmmuBlockAssignment with .block.district
+                    assignments = BmmuBlockAssignment.objects.filter(user=creator).select_related('block__district')
+                    for a in assignments:
+                        district = getattr(a.block, 'district', None)
+                        if district:
+                            # find DMMU users associated with this district (best-effort)
+                            dmmu_users = User.objects.filter(role__iexact='dmmu', profile__district=district)
+                            for u in dmmu_users:
+                                if getattr(u, 'email', None):
+                                    recipients.append(u.email)
+                except Exception:
+                    # fallback: try to locate a district property on creator and find DMMU users by district
+                    try:
+                        district = getattr(creator, 'district', None)
+                        if district:
+                            dmmu_users = User.objects.filter(role__iexact='dmmu', profile__district=district)
+                            for u in dmmu_users:
+                                if getattr(u, 'email', None):
+                                    recipients.append(u.email)
+                    except Exception:
+                        pass
+
+        elif level_upper in ('DISTRICT', 'STATE'):
+            # Send to SMMU of that theme (use training_plan.theme_expert)
+            tp = getattr(tr, 'training_plan', None)
+            if tp and getattr(tp, 'theme_expert', None):
+                expert = tp.theme_expert
+                if getattr(expert, 'email', None):
+                    recipients.append(expert.email)
+    except Exception:
+        logger.exception("partner_create_batches: notification recipients lookup failed, continuing without notification")
+
+    # Send a simple email if any recipients found
+    try:
+        if recipients:
+            subject = f"New batch(es) created from TrainingRequest {tr.id} - {tr.training_plan.training_name}"
+            body = f"Partner {partner.name if partner else request.user.username} created {len(created)} batch(es) for TrainingRequest {tr.id} ({tr.training_plan.training_name}).\n\nBatches:\n"
+            for c in created:
+                body += f"- Batch {c.get('batch_code')} (id:{c.get('batch_id')}), centre_id: {c.get('centre_id')}, assigned_count: {c.get('assigned_count')}\n"
+            send_mail(subject, strip_tags(body), None, list(set(recipients)))
+    except Exception:
+        logger.exception("partner_create_batches: email send failed")
+
+    return JsonResponse({'ok': True, 'created': created, 'count': len(created)})
+
 
 @login_required
 def training_partner_attendance(request):
@@ -2141,6 +2561,132 @@ def smmu_request_detail(request, batch_id):
 
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
 
+
+@login_required
+def smmu_training_partner_assignment(request):
+    """
+    SMMU interface to assign TrainingPlan -> TrainingPartner using TrainingPlanPartner model.
+    Updated to attach assignment metadata onto plan objects so template doesn't need custom filters.
+    """
+    # basic role guard (adjust according to your project role logic)
+    if getattr(request.user, 'role', '').lower() != 'smmu':
+        return HttpResponseForbidden("Not authorized")
+
+    # plans where current user is theme expert
+    plans_qs = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
+    partners = list(TrainingPartner.objects.all().order_by('name'))
+
+    if request.method == 'POST':
+        partner_id = request.POST.get('partner_id') or request.POST.get('partner')
+        training_plan_ids = request.POST.getlist('training_plan_ids') or request.POST.get('training_plan_ids', '')
+        if isinstance(training_plan_ids, str):
+            training_plan_ids = [x.strip() for x in training_plan_ids.split(',') if x.strip()]
+        force_flag = request.POST.get('force') in ('1', 'true', 'yes', 'on')
+
+        # validate partner
+        try:
+            partner = TrainingPartner.objects.get(pk=int(partner_id))
+        except Exception:
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({'success': False, 'error': 'Invalid partner selected.'}, status=400)
+            messages.error(request, 'Invalid partner selected.')
+            return redirect('smmu_training_partner_assignment')
+
+        # collect valid plans
+        valid_plan_objs = []
+        bad_ids = []
+        for pid in training_plan_ids:
+            try:
+                p = TrainingPlan.objects.get(pk=int(pid), theme_expert=request.user)
+                valid_plan_objs.append(p)
+            except Exception:
+                bad_ids.append(pid)
+
+        if bad_ids:
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({'success': False, 'error': f'Invalid training plan ids: {bad_ids}'}, status=400)
+            messages.error(request, f'Invalid training plan selection: {bad_ids}')
+            return redirect('smmu_training_partner_assignment')
+
+        # detect conflicts
+        conflicts = []
+        for plan in valid_plan_objs:
+            existing = TrainingPlanPartner.objects.filter(training_plan=plan).exclude(partner=partner).first()
+            if existing:
+                conflicts.append({
+                    'training_plan_id': plan.id,
+                    'training_name': plan.training_name,
+                    'conflicting_partner_id': existing.partner.id,
+                    'conflicting_partner_name': existing.partner.name
+                })
+
+        if conflicts and not force_flag:
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({
+                    'success': False,
+                    'conflict': True,
+                    'message': f"{len(conflicts)} selected training plan(s) are already assigned to other partner(s).",
+                    'conflicts': conflicts
+                }, status=200)
+            messages.warning(request, f"{len(conflicts)} selected training plan(s) are already assigned to other partner(s). Please confirm to reassign.")
+            qs = f"?partner_id={partner.id}&training_plan_ids={','.join([str(p.id) for p in valid_plan_objs])}"
+            return redirect('smmu_training_partner_assignment' + qs)
+
+        # perform reassignment
+        reassigned = []
+        created = []
+        with transaction.atomic():
+            plan_ids = [p.id for p in valid_plan_objs]
+            if plan_ids:
+                TrainingPlanPartner.objects.filter(training_plan_id__in=plan_ids).exclude(partner=partner).delete()
+            for p in valid_plan_objs:
+                obj, created_flag = TrainingPlanPartner.objects.update_or_create(
+                    training_plan=p,
+                    partner=partner,
+                    defaults={'assigned_by': request.user}
+                )
+                if created_flag:
+                    created.append(p.training_name)
+                else:
+                    reassigned.append(p.training_name)
+
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({
+                'success': True,
+                'message': f"Assigned {len(valid_plan_objs)} training plan(s) to {partner.name}.",
+                'created': created,
+                'reassigned': reassigned
+            })
+        messages.success(request, f"Assigned {len(valid_plan_objs)} training plan(s) to {partner.name}.")
+        return redirect('smmu_training_partner_assignment')
+
+    # GET: assemble plan metadata
+    plans = list(plans_qs)
+    # fetch existing assignments for these plans
+    existing_assignments = TrainingPlanPartner.objects.filter(training_plan__in=plans).select_related('partner', 'training_plan')
+    assign_map = {}
+    for a in existing_assignments:
+        assign_map[a.training_plan_id] = {
+            'partner_id': a.partner.id,
+            'partner_name': a.partner.name,
+            'assigned_on': getattr(a, 'assigned_on', None),
+            # include other fields if needed
+        }
+
+    # prepare plans_with_meta — each item is {'obj': plan, 'assign': assign_map.get(plan.id)}
+    plans_with_meta = []
+    for p in plans:
+        plans_with_meta.append({
+            'obj': p,
+            'assign': assign_map.get(p.id)
+        })
+
+    context = {
+        'plans_with_meta': plans_with_meta,
+        'partners': partners,
+    }
+    return render(request, 'smmu/training_partner_assignment.html', context)
+
 @login_required
 def dmmu_dashboard(request):
     if getattr(request.user, "role", "").lower() != "dmmu":
@@ -2361,127 +2907,373 @@ def dmmu_dashboard(request):
     default_content = render_to_string("dmmu/dmmu_dashboard.html", context, request=request)
     return render(request, "dashboard.html", {"user": request.user, "default_content": default_content})
 
-
 @login_required
 def dmmu_training_requests(request):
-    """
-    DMMU training requests fragment. Renders 'dmmu/training_requests.html'.
-    """
     if getattr(request.user, 'role', '').lower() != 'dmmu':
         return HttpResponseForbidden("Not authorized")
 
-    valid_statuses = {c[0] for c in Batch._meta.get_field('status').choices}
-    wanted = {'PENDING', 'PROPOSED', 'DRAFT'}
-    statuses_to_show = list(valid_statuses.intersection(wanted))
+    assigned_district = None
+    try:
+        assignment = DmmuDistrictAssignment.objects.filter(user=request.user).select_related('district').first()
+        if assignment:
+            assigned_district = assignment.district
+    except Exception:
+        assigned_district = None
 
-    qs = Batch.objects.filter(training_plan__theme_expert=request.user)
-    if statuses_to_show:
-        qs = qs.filter(status__in=statuses_to_show)
+    qs = TrainingRequest.objects.none()
+    try:
+        if assigned_district:
+            # best-effort: find BMMU users assigned to blocks in this district
+            try:
+                block_assigns = BmmuBlockAssignment.objects.filter(block__district=assigned_district).values_list('user_id', flat=True)
+                user_ids = list(block_assigns)
+                if user_ids:
+                    qs_block = TrainingRequest.objects.filter(level__iexact='BLOCK', created_by_id__in=user_ids)
+                else:
+                    qs_block = TrainingRequest.objects.none()
+            except Exception:
+                qs_block = TrainingRequest.objects.none()
 
-    qs = qs.select_related('training_plan', 'partner').order_by('-created_at')
+            # Also include requests that explicitly reference this district if that field exists
+            try:
+                qs_other = TrainingRequest.objects.filter(district=assigned_district)
+            except Exception:
+                qs_other = TrainingRequest.objects.none()
+        else:
+            qs_block = TrainingRequest.objects.none()
+            qs_other = TrainingRequest.objects.none()
+
+        qs = (qs_block | qs_other).distinct().order_by('-created_at')
+
+        # If nothing found, show recent BLOCK requests as fallback
+        if not qs.exists():
+            qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+    except Exception as e:
+        logger.exception("dmmu_training_requests: unexpected error building queryset: %s", e)
+        qs = TrainingRequest.objects.none()
 
     fragment = render_to_string('dmmu/training_requests.html', {'requests': qs}, request=request)
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
 
-
 @login_required
-def dmmu_request_detail(request, batch_id):
+def dmmu_request_detail(request, request_id):
     """
-    DMMU request detail. Renders 'dmmu/request_detail.html'.
+    DMMU view for a TrainingRequest detail page. Shows:
+      - training_request info
+      - all batches created from it
+      - per-batch centres, rooms, submissions, participants
+      - ability to pick master-trainers per batch (designation depends on request.level)
+      - approve all batches & set training_request.status -> ONGOING and batch.status -> ONGOING
     """
     if getattr(request.user, 'role', '').lower() != 'dmmu':
         return HttpResponseForbidden("Not authorized")
 
-    batch = get_object_or_404(
-        Batch.objects.select_related('training_plan', 'partner').prefetch_related('trainers', 'beneficiaries'),
-        id=batch_id,
-        training_plan__theme_expert=request.user
+    # safe fetch training request
+    tr = get_object_or_404(
+        TrainingRequest.objects.select_related('training_plan', 'partner'),
+        id=request_id
     )
 
-    # Build trainer certificate map (same approach as in partner_view_batch)
-    trainer_cert_map = {}
-    trainer_ids = [t.id for t in batch.trainers.all()]
-    if trainer_ids:
-        certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
-        for c in certs:
-            prev = trainer_cert_map.get(c.trainer_id)
-            if not prev:
-                trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
-            else:
-                prev_issued = prev.get('issued_on')
-                cur_issued = c.issued_on
-                if (cur_issued and (not prev_issued or cur_issued > prev_issued)) or (not prev_issued and not cur_issued and c.created_at > prev.get('created_at')):
-                    trainer_cert_map[c.trainer_id] = {'certificate_number': c.certificate_number, 'issued_on': c.issued_on, 'created_at': c.created_at}
-    trainer_cert_map = {k: (v['certificate_number'] if v and v.get('certificate_number') else None) for k, v in trainer_cert_map.items()}
+    # Check DMMU permission for BLOCK-level requests (best-effort)
+    assigned_district = None
+    try:
+        assignment = DmmuDistrictAssignment.objects.filter(user=request.user).select_related('district').first()
+        if assignment:
+            assigned_district = assignment.district
+    except Exception:
+        assigned_district = None
 
+    if tr.level and (tr.level or '').upper() == 'BLOCK' and assigned_district:
+        try:
+            creator = getattr(tr, 'created_by', None)
+            allowed = False
+            if creator:
+                try:
+                    creator_assigns = BmmuBlockAssignment.objects.filter(user=creator).select_related('block__district')
+                    for a in creator_assigns:
+                        if getattr(a.block, 'district', None) == assigned_district:
+                            allowed = True
+                            break
+                except Exception:
+                    try:
+                        if getattr(tr, 'district', None) == assigned_district:
+                            allowed = True
+                    except Exception:
+                        allowed = False
+            if not allowed:
+                return HttpResponseForbidden("Not authorized to view this request")
+        except Exception:
+            pass
+
+    # POST: handle trainer assignment and approve-all
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip().lower()
-        status_choices = {c[0].lower(): c[0] for c in Batch._meta.get_field('status').choices}
 
-        def set_status_if_available(token_lower):
-            token_lower = token_lower.lower()
-            if token_lower in status_choices:
-                batch.status = status_choices[token_lower]
-                return True
-            return False
+        # assign trainers to batches (multi-checkbox allowed)
+        for b in Batch.objects.filter(request=tr):
+            key = f"trainer_for_batch_{b.id}"
+            posted_ids = request.POST.getlist(key) or []
 
-        if action == 'approve':
-            if getattr(batch, 'centre_proposed', None) and not getattr(batch, 'centre', None):
-                batch.centre = batch.centre_proposed
-            set_success = False
-            if set_status_if_available('ONGOING'):
-                set_success = True
-            else:
-                for fallback in ('PENDING', 'APPROVED', 'PROPOSED', 'DRAFT'):
-                    if set_status_if_available(fallback):
-                        set_success = True
-                        break
-            batch.save()
-            if set_success:
-                messages.success(request, "Batch approved and status updated.")
-            else:
-                messages.success(request, "Batch approved (status token not mapped cleanly).")
+            try:
+                # Delete previous participations for this batch (safe)
+                try:
+                    TrainerBatchParticipation.objects.filter(batch=b).delete()
+                except Exception:
+                    # fallback: if batch exposes m2m trainers, clear it
+                    try:
+                        if hasattr(b, 'trainers'):
+                            b.trainers.clear()
+                    except Exception:
+                        pass
 
-        elif action == 'reject':
-            if set_status_if_available('REJECTED'):
-                batch.save()
-                messages.info(request, "Batch rejected.")
-            else:
-                messages.info(request, "Batch rejection recorded (status token not mapped).")
+                # Create new TrainerBatchParticipation rows for each posted id
+                for tid in [x for x in posted_ids if x]:
+                    try:
+                        tid_int = int(tid)
+                    except Exception:
+                        continue
 
-        return redirect('dmmu_training_requests')
+                    trainer_obj = None
+                    # prefer MasterTrainer model
+                    try:
+                        trainer_obj = MasterTrainer.objects.filter(id=tid_int).first()
+                    except Exception:
+                        trainer_obj = None
 
-    # GET: prepare data and render
-    partner = getattr(batch, 'partner', None)
-    submissions = []
-    if partner:
+                    if not trainer_obj:
+                        # fallback: check User, then try to match to MasterTrainer via user FK if your MasterTrainer links to user
+                        try:
+                            trainer_user = User.objects.filter(id=tid_int).first()
+                            if trainer_user:
+                                # try to find MasterTrainer for this user
+                                try:
+                                    trainer_obj = MasterTrainer.objects.filter(user=trainer_user).first()
+                                except Exception:
+                                    trainer_obj = None
+                                # if still None, we may add user to m2m (if available)
+                                if not trainer_obj and hasattr(b, 'trainers'):
+                                    try:
+                                        b.trainers.add(trainer_user)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+
+                    if trainer_obj:
+                        try:
+                            TrainerBatchParticipation.objects.create(batch=b, trainer=trainer_obj, participated=False)
+                        except Exception:
+                            # fallback to m2m add if available
+                            try:
+                                if hasattr(b, 'trainers'):
+                                    b.trainers.add(trainer_obj)
+                            except Exception:
+                                logger.exception("dmmu_request_detail: failed to add trainer (fallback) %s to batch %s", tid_int, b.id)
+            except Exception:
+                logger.exception("dmmu_request_detail: failed processing posted trainers for batch %s", b.id)
+
+        # Approve all => set request.status and all batches.status to ONGOING
+        if action == 'approve_all':
+            try:
+                if hasattr(tr, 'status'):
+                    tr.status = 'ONGOING'
+                    tr.save()
+            except Exception:
+                logger.exception("dmmu_request_detail: failed to update training request status")
+
+            try:
+                batches = Batch.objects.filter(request=tr)
+                for b in batches:
+                    try:
+                        # choose appropriate token if choices exist
+                        try:
+                            choices = [c[0] for c in Batch._meta.get_field('status').choices]
+                            if 'ONGOING' in choices:
+                                b.status = 'ONGOING'
+                            elif 'IN_PROGRESS' in choices:
+                                b.status = 'IN_PROGRESS'
+                            else:
+                                b.status = 'ONGOING'
+                        except Exception:
+                            b.status = 'ONGOING'
+                        b.save()
+                    except Exception:
+                        logger.exception("dmmu_request_detail: batch %s status update failed", b.id)
+                messages.success(request, "All batches approved and training marked ONGOING.")
+            except Exception:
+                logger.exception("dmmu_request_detail: failed to set batch statuses")
+
+            return redirect('dmmu_training_requests')
+
+        # if action was only trainer assignment
+        if action in ('assign_trainers', ''):
+            messages.success(request, "Trainer assignments saved.")
+            return redirect('dmmu_request_detail', request_id=tr.id)
+
+    # GET: prepare display data
+
+    # Retrieve batches for this request
+    batches_qs = Batch.objects.filter(request=tr).select_related('centre').order_by('start_date', 'id')
+
+    batch_details = []
+    for b in batches_qs:
+        centre = getattr(b, 'centre', None)
+
+        # rooms and submissions
+        rooms = []
+        submissions = []
         try:
-            submissions = TrainingPartnerSubmission.objects.filter(partner=partner).order_by('-uploaded_on')[:12]
+            if centre and hasattr(centre, 'rooms'):
+                rooms = list(centre.rooms.all())
+        except Exception:
+            rooms = []
+        try:
+            if centre and hasattr(centre, 'submissions'):
+                submissions = list(centre.submissions.all())
+        except Exception:
+            submissions = []
+
+        # beneficiaries assigned for this batch: prefer BatchBeneficiary join model
+        beneficiaries = []
+        try:
+            if hasattr(b, 'batch_beneficiaries'):
+                beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+            elif hasattr(b, 'beneficiaries'):
+                beneficiaries = list(b.beneficiaries.all())
+        except Exception:
+            beneficiaries = []
+
+        # assigned trainer ids for pre-check in template
+        assigned_trainer_ids = []
+        try:
+            assigned_trainer_ids = list(TrainerBatchParticipation.objects.filter(batch=b).values_list('trainer_id', flat=True))
         except Exception:
             try:
-                submissions = partner.trainingsubmission_set.all().order_by('-uploaded_on')[:12]
+                if hasattr(b, 'trainers'):
+                    assigned_trainer_ids = list(b.trainers.values_list('id', flat=True))
             except Exception:
-                submissions = []
+                assigned_trainer_ids = []
 
-    beneficiaries = list(batch.beneficiaries.all())
+        # enriched centre_info dict for template
+        centre_info = {}
+        if centre:
+            try:
+                centre_info = {
+                    'serial_number': getattr(centre, 'serial_number', None),
+                    'district': getattr(centre, 'district', None),
+                    'coord_name': getattr(centre, 'centre_coord_name', None),
+                    'coord_mobile': getattr(centre, 'centre_coord_mob_number', None),
+                    'venue_name': getattr(centre, 'venue_name', None),
+                    'venue_address': getattr(centre, 'venue_address', None),
+                    'training_hall_count': getattr(centre, 'training_hall_count', None),
+                    'training_hall_capacity': getattr(centre, 'training_hall_capacity', None),
+                    'security_arrangements': getattr(centre, 'security_arrangements', None),
+                    'toilets_bathrooms': getattr(centre, 'toilets_bathrooms', None),
+                    'power_water_facility': getattr(centre, 'power_water_facility', None),
+                    'medical_kit': getattr(centre, 'medical_kit', None),
+                    'centre_type': getattr(centre, 'centre_type', None),
+                    'open_space': getattr(centre, 'open_space', None),
+                    'field_visit_facility': getattr(centre, 'field_visit_facility', None),
+                    'transport_facility': getattr(centre, 'transport_facility', None),
+                    'dining_facility': getattr(centre, 'dining_facility', None),
+                    'other_details': getattr(centre, 'other_details', None),
+                    'created_at': getattr(centre, 'created_at', None),
+                }
+            except Exception:
+                centre_info = {}
+
+        batch_details.append({
+            'batch': b,
+            'centre': centre,
+            'centre_info': centre_info,
+            'rooms': rooms,
+            'submissions': submissions,
+            'beneficiaries': beneficiaries,
+            'assigned_trainer_ids': assigned_trainer_ids,
+        })
+
+    # Participants attached to the TrainingRequest
+    participants = []
+    try:
+        participants = list(tr.beneficiaries.all())
+    except Exception:
+        participants = []
+
+    # compute participant helpers (display_name, display_mobile, display_location, age)
     today = date.today()
-    for b in beneficiaries:
-        dob = getattr(b, 'date_of_birth', None)
+    for p in participants:
+        dob = getattr(p, 'date_of_birth', None)
         age = None
         if dob:
             try:
                 age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
             except Exception:
                 age = None
-        setattr(b, 'age', age)
+        setattr(p, 'age', age)
+
+        display_name = getattr(p, 'member_name', None) or getattr(p, 'full_name', None) or getattr(p, 'member_code', None) or str(p)
+        setattr(p, 'display_name', display_name)
+
+        mobile = getattr(p, 'mobile_number', None) or getattr(p, 'mobile_no', None) or getattr(p, 'mobile', None) or ''
+        setattr(p, 'display_mobile', mobile)
+
+        loc_parts = []
+        try:
+            v = getattr(p, 'village', None)
+            if v:
+                loc_parts.append(str(v))
+            b = getattr(p, 'block', None)
+            if b:
+                try:
+                    loc_parts.append(getattr(b, 'block_name_en', str(b)))
+                except Exception:
+                    loc_parts.append(str(b))
+        except Exception:
+            pass
+        setattr(p, 'display_location', ", ".join([x for x in loc_parts if x]))
+
+    # Determine designation token mapping for master trainers
+    trainer_role_token = 'DRP'
+    try:
+        lvl = (tr.level or '').upper()
+        if lvl == 'BLOCK':
+            trainer_role_token = 'BRP'
+        elif lvl == 'DISTRICT':
+            trainer_role_token = 'DRP'
+        elif lvl == 'STATE':
+            trainer_role_token = 'SRP'
+    except Exception:
+        trainer_role_token = 'DRP'
+
+    # Fetch master trainers (prefer MasterTrainer model)
+    master_trainers = []
+    try:
+        master_trainers = MasterTrainer.objects.all()
+    except Exception:
+        try:
+            master_trainers = list(User.objects.filter(designation__iexact=trainer_role_token).order_by('success_rate'))
+        except Exception:
+            master_trainers = []
+
+    # Build trainer_cert_map
+    trainer_cert_map = {}
+    try:
+        trainer_ids = [getattr(mt, 'id') for mt in master_trainers if getattr(mt, 'id', None)]
+        if trainer_ids:
+            certs = MasterTrainerCertificate.objects.filter(trainer_id__in=trainer_ids).order_by('trainer_id', '-issued_on', '-created_at')
+            for c in certs:
+                if c.trainer_id not in trainer_cert_map:
+                    trainer_cert_map[c.trainer_id] = c.certificate_number
+    except Exception:
+        trainer_cert_map = {}
 
     fragment_html = render_to_string('dmmu/request_detail.html', {
-        'batch': batch,
-        'partner': partner,
-        'submissions': submissions,
-        'beneficiaries': beneficiaries,
-        'today': today,
+        'training_request': tr,
+        'batches': batch_details,
+        'participants': participants,
+        'master_trainers': master_trainers,
         'trainer_cert_map': trainer_cert_map,
+        'today': today,
     }, request=request)
 
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})

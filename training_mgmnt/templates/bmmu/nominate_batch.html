@@ -1,5 +1,26 @@
-<form method="post" id="nominateBatchForm">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button class="btn btn-primary" type="submit">Nominate Batch</button>
-</form>
+{% extends "dashboard.html" %}
+{% block content %}
+<div class="card p-3">
+  <h5>Nominate Batch</h5>
+  <form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+      {{ form.training_plan.label_tag }} {{ form.training_plan }}
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Training Type</label><br/>
+      <input type="radio" name="training_type" value="BENEFICIARY" id="tt_ben" checked> <label for="tt_ben">Beneficiary</label>
+      <input type="radio" name="training_type" value="TRAINER" id="tt_tr" class="ms-3"> <label for="tt_tr">Master Trainer</label>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Participants (IDs comma separated)</label>
+      <input class="form-control" name="participants" placeholder="e.g. 1,2,3 or trainer ids">
+      <div class="form-text">If beneficiaries selected, pass beneficiary IDs. If trainer, pass MasterTrainer IDs. The system will attach selected participants to TrainingRequest/Batch.</div>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Nominate</button>
+  </form>
+</div>
+{% endblock %}

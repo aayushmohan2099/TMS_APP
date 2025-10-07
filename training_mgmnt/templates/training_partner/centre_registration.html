@@ -1,82 +1,334 @@
 {% extends "training_partner/base_partner.html" %}
 {% load static %}
-
 {% block title %}Centre Registration{% endblock %}
 {% block header_title %}Centre Registration{% endblock %}
-{% block header_subtitle %}Upload centre documents and photos (fooding, toilet, hostel, centre front etc.){% endblock %}
 
 {% block content %}
-  <div class="row">
-    <div class="col-md-6">
-      <div class="card mb-3">
-        <div class="card-body">
-          <h5 class="mb-3">Upload Submission</h5>
-          <form method="post" enctype="multipart/form-data">
-            {% csrf_token %}
-            <div class="mb-2">
-              <label class="form-label">Category</label>
-              {{ form.category }}
-              {{ form.category.errors }}
-            </div>
-            <div class="mb-2">
-              <label class="form-label">File (PDF / JPG / PNG)</label>
-              {{ form.file }}
-              {{ form.file.errors }}
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Notes</label>
-              {{ form.notes }}
-              {{ form.notes.errors }}
-            </div>
-            <div>
-              <button class="btn btn-primary" type="submit">Upload</button>
-              <a class="btn btn-outline-secondary" href="{% url 'training_partner_dashboard' %}">Back</a>
-            </div>
-          </form>
-        </div>
+<div class="row g-3">
+  <!-- Left: partner centres list -->
+  <div class="col-md-4">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6>Your Centres</h6>
+        <p class="small text-muted">Click a centre to view/edit it. Use "Add new centre" to create one.</p>
+
+        {% if partner_centres and partner_centres.exists %}
+          <div class="list-group">
+            {% for c in partner_centres %}
+              <a href="?centre_id={{ c.id }}" class="list-group-item list-group-item-action {% if centre and centre.id == c.id %}active{% endif %}">
+                <div class="d-flex w-100 justify-content-between">
+                  <div>
+                    <strong>{{ c.venue_name|default:"Unnamed Centre" }}</strong>
+                    <div class="small text-muted">{{ c.venue_address|truncatechars:80 }}</div>
+                  </div>
+                  <small class="text-muted">{{ c.training_hall_capacity|default:"—" }}</small>
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">No centres registered yet.</div>
+        {% endif %}
       </div>
     </div>
 
-    <div class="col-md-6">
-      <div class="card mb-3">
-        <div class="card-body">
-          <h5 class="mb-3">Recent Submissions</h5>
-          {% if submissions %}
-            <ul class="list-group">
-              {% for s in submissions %}
-                <li class="list-group-item">
-                  <div class="d-flex justify-content-between">
-                    <div>
-                      <div class="fw-bold">{{ s.get_category_display }}</div>
-                      <div class="small text-muted">
-                        {{ s.uploaded_on|date:"Y-m-d H:i" }}
-                        &nbsp; by
-                        {% if s.uploaded_by %}
-                          {{ s.uploaded_by.username }}
-                        {% else %}
-                          (unknown)
-                        {% endif %}
-                      </div>
-
-                      {% if s.notes %}
-                        <div class="mt-1">{{ s.notes }}</div>
-                      {% endif %}
-                    </div>
-
-                    <div class="text-end">
-                      {% if s.file %}
-                        <a class="btn btn-sm btn-outline-primary" href="{{ s.file.url }}" target="_blank">Open</a>
-                      {% endif %}
-                    </div>
-                  </div>
-                </li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <div class="text-muted">No submissions yet.</div>
+    <div class="card">
+      <div class="card-body">
+        <h6>Quick actions</h6>
+        <div class="d-grid gap-2">
+          <button id="addNewCentreBtn" class="btn btn-primary btn-sm">Add new centre</button>
+          {% if centre %}
+            <a href="?centre_id={{ centre.id }}" class="btn btn-outline-secondary btn-sm">Edit selected</a>
+            <form method="post" style="display:inline;">
+              {% csrf_token %}
+              <input type="hidden" name="centre_id" value="{{ centre.id }}">
+              <button type="submit" name="delete_centre" value="1" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this centre and its rooms & submissions?');">Delete centre</button>
+            </form>
           {% endif %}
         </div>
       </div>
     </div>
   </div>
+
+  <!-- Right: main forms (hidden until Add new / centre selected) -->
+  <div class="col-md-8">
+    <div id="centreFormCard" class="card mb-3 p-3" style="{% if not centre %}display:none;{% endif %}">
+      <h5 class="mb-3">{% if centre %}Edit Centre{% else %}Register Centre{% endif %}</h5>
+
+      <form method="post" enctype="multipart/form-data" id="centreForm">
+        {% csrf_token %}
+        {% if centre %}<input type="hidden" name="centre_id" value="{{ centre.id }}">{% endif %}
+
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Serial number</label>
+            {{ form.serial_number }}
+          </div>
+          <div class="col-md-9">
+            <label class="form-label">District</label>
+            {{ form.district }}
+          </div>
+        </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-md-6">
+            <label class="form-label">Coordinator Name</label>
+            {{ form.centre_coord_name }}
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Coordinator Mobile</label>
+            {{ form.centre_coord_mob_number }}
+          </div>
+        </div>
+
+        <div class="mb-3 mt-2">
+          <label class="form-label">Venue Name</label>
+          {{ form.venue_name }}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Venue Address</label>
+          {{ form.venue_address }}
+        </div>
+
+        <div class="row g-2">
+          <div class="col-md-4">
+            <label class="form-label">Training Hall Count</label>
+            {{ form.training_hall_count }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Training Hall Capacity (total)</label>
+            {{ form.training_hall_capacity }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Centre Type</label>
+            {{ form.centre_type }}
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <h6>Facilities & Amenities</h6>
+        <div class="row g-2 mt-2">
+          <div class="col-md-6">
+            <label class="form-label">Security arrangements</label>
+            {{ form.security_arrangements }}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Toilets / Bathrooms</label>
+            {{ form.toilets_bathrooms }}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Power/Water</label>
+            {{ form.power_water_facility }}
+          </div>
+        </div>
+
+        <div class="row g-2 mt-2 align-items-center">
+          <div class="col-md-3">
+            <div class="form-check">
+              {{ form.medical_kit }} <label class="form-check-label">Medical kit</label>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="form-check">
+              {{ form.open_space }} <label class="form-check-label">Open space</label>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="form-check">
+              {{ form.field_visit_facility }} <label class="form-check-label">Field visit</label>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="form-check">
+              {{ form.transport_facility }} <label class="form-check-label">Transport</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-2 mt-2 align-items-center">
+          <div class="col-md-3">
+            <div class="form-check">
+              {{ form.dining_facility }} <label class="form-check-label">Dining facility</label>
+            </div>
+          </div>
+          <div class="col-md-9">
+            <label class="form-label">Other details</label>
+            {{ form.other_details }}
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <h6>Rooms (add / remove)</h6>
+        <p class="small text-muted">Add rooms and capacities. You can add multiple rooms.</p>
+
+        <div id="roomsFormset">
+          {{ rooms_formset.management_form }}
+          {% for form_room in rooms_formset.forms %}
+            <div class="row g-2 align-items-end mb-2 room-row">
+              <div class="col-md-6">
+                {{ form_room.room_name }}
+                {% if form_room.room_name.errors %}<div class="text-danger small">{{ form_room.room_name.errors }}</div>{% endif %}
+              </div>
+              <div class="col-md-4">
+                {{ form_room.room_capacity }}
+                {% if form_room.room_capacity.errors %}<div class="text-danger small">{{ form_room.room_capacity.errors }}</div>{% endif %}
+              </div>
+              <div class="col-md-2">
+                {% if form_room.instance.id %}
+                  <div class="form-check">
+                    {{ form_room.DELETE }} <label class="form-check-label small">Remove</label>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        {# Hidden empty_form template used by JS to clone new room rows #}
+        <div id="empty_form_template" style="display:none;">
+          <div class="row g-2 align-items-end mb-2 room-row">
+            {% autoescape off %}
+              {{ rooms_formset.empty_form.as_p }}
+            {% endautoescape %}
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <button class="btn btn-secondary btn-sm" type="button" id="addRoomBtn">Add another room</button>
+        </div>
+
+        <div class="d-flex gap-2">
+          <button type="submit" name="save_centre" class="btn btn-primary">Save Centre</button>
+          <a href="{% url 'training_partner_centre_registration' %}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Submissions upload - only show when editing an existing centre -->
+    {% if centre %}
+      <div class="card mb-3 p-3">
+        <h6>Upload Centre Photos / PDFs</h6>
+        <p class="small text-muted">You can upload multiple files. Category and notes apply to all files uploaded in this step.</p>
+
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <input type="hidden" name="centre_id" value="{{ centre.id }}">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <label class="form-label">Category</label>
+              {{ submission_form.category }}
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Files (jpeg/png/pdf) - you may choose multiple</label>
+              <input type="file" name="submission_files" accept=".jpg,.jpeg,.png,.pdf" multiple class="form-control">
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="form-label">Notes (optional)</label>
+            {{ submission_form.notes }}
+          </div>
+          <div class="mt-3">
+            <button type="submit" name="upload_submissions" class="btn btn-primary">Upload</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card p-3">
+        <h6>Submissions for {{ centre.venue_name }}</h6>
+        {% if submissions and submissions.exists %}
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+              <thead class="table-light">
+                <tr><th>Uploaded</th><th>Category</th><th>Notes</th><th>File</th><th>&nbsp;</th></tr>
+              </thead>
+              <tbody>
+                {% for s in submissions %}
+                  <tr>
+                    <td>{{ s.uploaded_on|date:"Y-m-d H:i" }}</td>
+                    <td>{{ s.get_category_display }}</td>
+                    <td>{{ s.notes|truncatechars:80 }}</td>
+                    <td>
+                      {% if s.file %}
+                        <a href="{{ s.file.url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Open</a>
+                      {% else %}
+                        &mdash;
+                      {% endif %}
+                    </td>
+                    <td>
+                      <form method="post" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="centre_id" value="{{ centre.id }}">
+                        <input type="hidden" name="submission_id" value="{{ s.id }}">
+                        <button type="submit" name="delete_submission" value="1" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this submission?');">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-muted py-3">No submissions yet for this centre.</div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="card p-3">
+        <div class="text-muted">No centre selected. Click a centre on the left to edit it, or click "Add new centre" to create a new one.</div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  const addBtn = document.getElementById('addNewCentreBtn');
+  const formCard = document.getElementById('centreFormCard');
+
+  addBtn?.addEventListener('click', function(e){
+    e.preventDefault();
+    // show the form card for new centre
+    formCard.style.display = 'block';
+    // remove any existing centre_id input so backend knows it's a new centre
+    const cid = document.querySelector('input[name="centre_id"]');
+    if(cid) cid.remove();
+    // scroll to form
+    formCard.scrollIntoView({behavior: 'smooth'});
+  });
+
+  // Rooms formset cloning logic
+  const addRoomBtn = document.getElementById('addRoomBtn');
+  addRoomBtn?.addEventListener('click', function(e){
+    e.preventDefault();
+    // Determine formset prefix and total forms element
+    let prefix = "{{ rooms_formset.prefix }}";
+    const totalForms = document.getElementById('id_' + prefix + '-TOTAL_FORMS');
+    if(!totalForms){
+      // fallback: find any TOTAL_FORMS input
+      const anyTot = document.querySelector('input[name$="-TOTAL_FORMS"]');
+      if(anyTot) {
+        prefix = anyTot.name.replace('-TOTAL_FORMS','');
+      }
+    }
+    const tot = document.getElementById('id_' + prefix + '-TOTAL_FORMS');
+    let index = parseInt(tot.value, 10);
+    // get empty form HTML and replace __prefix__ with index
+    const template = document.getElementById('empty_form_template');
+    if(!template) {
+      alert('Cannot add room: form template missing.');
+      return;
+    }
+    let html = template.innerHTML;
+    // Replace Django's __prefix__ markers - there may be multiple occurrences
+    html = html.replace(/__prefix__/g, index);
+    // insert new node
+    const container = document.getElementById('roomsFormset');
+    container.insertAdjacentHTML('beforeend', html);
+    // increment TOTAL_FORMS
+    tot.value = String(index + 1);
+  });
+})();
+</script>
 {% endblock %}

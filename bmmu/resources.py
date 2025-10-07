@@ -178,7 +178,7 @@ class TrainingRequestResource(resources.ModelResource):
         import_id_fields = ("id",)
         skip_unchanged = True
         report_skipped = True
-        fields = ("id", "code", "training_plan", "training_type", "partner", "level", "status", "rejection_reason", "created_by", "created_at")
+        fields = ("id", "training_plan", "training_type", "partner", "level", "status", "rejection_reason", "created_by", "created_at")
 
 
 # -------------------------

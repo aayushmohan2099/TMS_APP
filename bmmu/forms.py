@@ -2,7 +2,8 @@
 import re
 from django.contrib.auth import get_user_model
 from django import forms
-from .models import TrainingPlan, Batch, TrainingPartner, MasterTrainer, TrainingPartnerSubmission, MasterTrainerCertificate
+from .models import *
+from django.forms import inlineformset_factory
 
 User = get_user_model()
 
@@ -80,18 +81,85 @@ class TrainingPartnerProfileForm(forms.ModelForm):
         return digits or ''
 
 
+class TrainingPartnerCentreForm(forms.ModelForm):
+    class Meta:
+        model = TrainingPartnerCentre
+        # include all editable fields from the model (except partner/uploaded_by/created_at)
+        fields = [
+            "serial_number",
+            "district",
+            "centre_coord_name",
+            "centre_coord_mob_number",
+            "venue_name",
+            "venue_address",
+            "training_hall_count",
+            "training_hall_capacity",
+            "security_arrangements",
+            "toilets_bathrooms",
+            "power_water_facility",
+            "medical_kit",
+            "centre_type",
+            "open_space",
+            "field_visit_facility",
+            "transport_facility",
+            "dining_facility",
+            "other_details",
+        ]
+        widgets = {
+            "venue_address": forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
+            "other_details": forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
+            "serial_number": forms.NumberInput(attrs={"class": "form-control"}),
+            "district": forms.Select(attrs={"class": "form-select"}),
+            "centre_coord_name": forms.TextInput(attrs={"class": "form-control"}),
+            "centre_coord_mob_number": forms.TextInput(attrs={"class": "form-control"}),
+            "venue_name": forms.TextInput(attrs={"class": "form-control"}),
+            "training_hall_count": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
+            "training_hall_capacity": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
+            "security_arrangements": forms.TextInput(attrs={"class": "form-control"}),
+            "toilets_bathrooms": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
+            "power_water_facility": forms.TextInput(attrs={"class": "form-control"}),
+            "medical_kit": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "centre_type": forms.TextInput(attrs={"class": "form-control", "placeholder": "Private / Govt / Lodge / Rented"}),
+            "open_space": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "field_visit_facility": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "transport_facility": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "dining_facility": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+class TrainingPartnerCentreRoomsForm(forms.ModelForm):
+    class Meta:
+        model = TrainingPartnerCentreRooms
+        fields = [
+            "room_name",
+            "room_capacity",
+        ]
+        widgets = {
+            "room_name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Room name / number"}),
+            "room_capacity": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
+        }
+
+TrainingPartnerCentreRoomsFormSet = inlineformset_factory(
+    TrainingPartnerCentre,
+    TrainingPartnerCentreRooms,
+    form=TrainingPartnerCentreRoomsForm,
+    extra=1,
+    can_delete=True,
+    min_num=0,
+    validate_min=False,
+)
+
 class TrainingPartnerSubmissionForm(forms.ModelForm):
     class Meta:
         model = TrainingPartnerSubmission
-        fields = ('category', 'file', 'notes')
-
-    def clean_file(self):
-        f = self.cleaned_data.get('file')
-        if f:
-            name = getattr(f, 'name', '').lower()
-            if not (name.endswith('.pdf') or name.endswith('.jpg') or name.endswith('.jpeg') or name.endswith('.png')):
-                raise forms.ValidationError("Upload must be a PDF or an image (jpg/png).")
-        return f
+        fields = [
+            "category",
+            "file",
+            "notes",
+        ]
+        widgets = {
+            "notes": forms.Textarea(attrs={"rows": 2, "class": "form-control"}),
+            "category": forms.Select(attrs={"class": "form-select"}),
+        }
 
 
 class MasterTrainerForm(forms.ModelForm):
@@ -169,3 +237,8 @@ class PublicMasterTrainerProfileForm(forms.ModelForm):
         parts = [part.strip() for part in re.split(r'[;,|]', s) if part.strip()]
         normalized = ",".join(parts)
         return normalized
+
+class TrainingPlanPartnerForm(forms.ModelForm):
+    class Meta:
+        model = TrainingPlanPartner
+        fields = ['training_plan', 'partner', 'drp_payments']

@@ -263,23 +263,14 @@ class TrainingPlanPartnerAdmin(admin.ModelAdmin):
     autocomplete_fields = ("training_plan", "partner", "assigned_by")
     readonly_fields = ("assigned_on",)
 
-
-@admin.register(TrainingPartnerAssignment)
-class TrainingPartnerAssignmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "theme", "block", "partner", "created_at")
-    search_fields = ("theme", "block", "partner__name")
-    autocomplete_fields = ("partner",)
-    readonly_fields = ("created_at",)
-
-
 # -------------------------
 # TrainingRequest and Batch flow
 # -------------------------
 @admin.register(TrainingRequest)
 class TrainingRequestAdmin(ImportExportModelAdmin, admin.ModelAdmin):
     resource_class = TrainingRequestResource
-    list_display = ("id", "code", "training_plan", "training_type", "partner", "level", "status", "created_by", "created_at")
-    search_fields = ("code", "training_plan__training_name", "partner__name", "created_by__username")
+    list_display = ("id", "training_plan", "training_type", "partner", "level", "status", "created_by", "created_at")
+    search_fields = ("training_plan__training_name", "partner__name", "created_by__username")
     list_filter = ("training_type", "level", "status", "partner")
     autocomplete_fields = ("training_plan", "partner", "created_by", "beneficiaries", "trainers")
     readonly_fields = ("created_at",)
@@ -313,6 +304,14 @@ class TrainerBatchParticipationAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
 
 
+@admin.register(BatchBeneficiary)
+class BatchBeneficiaryAdmin(admin.ModelAdmin):
+    list_display = ("id", "beneficiary", "batch", "registered_on", "attended")
+    search_fields = ("beneficiary__member_name", "beneficiary__member_code", "batch__code")
+    list_filter = ("attended",)
+    readonly_fields = ("registered_on",)
+    autocomplete_fields = ("beneficiary", "batch")
+
 @admin.register(BeneficiaryBatchRegistration)
 class BeneficiaryBatchRegistrationAdmin(admin.ModelAdmin):
     list_display = ("id", "beneficiary", "training", "registered_on", "attended")
@@ -320,7 +319,6 @@ class BeneficiaryBatchRegistrationAdmin(admin.ModelAdmin):
     list_filter = ("attended",)
     readonly_fields = ("registered_on",)
     autocomplete_fields = ("beneficiary", "training")
-
 
 @admin.register(TrainerBatchRegistration)
 class TrainerBatchRegistrationAdmin(admin.ModelAdmin):

@@ -9,7 +9,7 @@
   <div class="row g-3">
     <!-- LEFT column: Tabs area (Targets -> Requests -> Quick Actions) -->
     <div class="col-md-4">
-      <!-- Targets (first seen) -->
+      <!-- Targets -->
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="mb-2">Training Targets</h5>
@@ -36,20 +36,26 @@
         </div>
       </div>
 
-      <!-- Training Requests -->
+      <!-- Training Requests (KEY) -->
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="mb-2">Training Requests</h5>
-          <p class="small text-muted">Recent requests sent by BMMU.</p>
+          <p class="small text-muted">Recent requests sent by BMMU/DMMU/SMMU for which your partner may create batches.</p>
 
           <ul class="list-group mb-2">
-            {% for batch in assignments|slice:":6" %}
+            {% for req in training_requests|default:assignments|slice:":8" %}
               <li class="list-group-item d-flex justify-content-between align-items-start">
                 <div>
-                  <div class="fw-bold">{{ batch.training_plan.training_name }}</div>
-                  <div class="small text-muted">Batch: {{ batch.code|default:batch.id }} | Theme: {{ batch.training_plan.theme }}</div>
+                  <div class="fw-bold">{{ req.training_plan.training_name }}</div>
+                  <div class="small text-muted">Requested: {{ req.created_at|date:"Y-m-d" }} — Level: {{ req.level }}</div>
+                  <div class="small text-muted">Requested beneficiaries: {{ req.beneficiary_registrations.count|default:req.beneficiaries.count }}</div>
                 </div>
-                <div><a href="{% url 'partner_view_batch' batch.id %}" class="btn btn-sm btn-primary">Open</a></div>
+                <div class="d-flex flex-column align-items-end gap-2">
+                  <a href="{% url 'partner_view_request' req.id %}" class="btn btn-sm btn-outline-primary">Open Request</a>
+                  {% if req.partner_id == partner.id or not req.partner_id %}
+                    <a href="{% url 'partner_view_request' req.id %}" class="btn btn-sm btn-primary">Create Batches</a>
+                  {% endif %}
+                </div>
               </li>
             {% empty %}
               <li class="list-group-item text-center text-muted">No requests</li>
@@ -72,7 +78,7 @@
       </div>
     </div>
 
-    <!-- RIGHT column: Smaller analytics & charts -->
+    <!-- RIGHT column: KPIs & charts (preserved) -->
     <div class="col-md-8">
       <div class="row g-3">
         <!-- KPIs compact -->
@@ -114,7 +120,7 @@
           </div>
         </div>
 
-        <!-- Charts -->
+        <!-- Charts (unchanged) -->
         <div class="col-12">
           <div class="card mb-3">
             <div class="card-body">
@@ -145,7 +151,7 @@
     </div>
   </div>
 
-  <!-- Ongoing Trainings Modal (kept same as earlier) -->
+  <!-- Ongoing Trainings Modal (kept, unchanged) -->
   <div class="modal fade" id="ongoingTrainingsModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
       <div class="modal-content">
@@ -193,7 +199,7 @@
       const btn = document.getElementById('openOngoingBtn');
       if(btn) btn.addEventListener('click', function(e){ e.preventDefault(); new bootstrap.Modal(document.getElementById('ongoingTrainingsModal')).show(); });
 
-      // small sample charts (same sample data)
+      // sample charts
       const months = ['May','Jun','Jul','Aug','Sep','Oct'];
       const trainingsPerMonth = [2,4,3,6,5,4];
       const attendancePct = [78,82,80,85,83,81];

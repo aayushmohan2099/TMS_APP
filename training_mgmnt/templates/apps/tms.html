@@ -9,482 +9,260 @@
   const SERVER_BATCHES = {{ batches_json|default:"[]"|safe }};
 </script>
 
-<div class="container-fluid">
-  <h3 class="mb-3 text-center">Training Program Management</h3>
+<div class="tms-panel p-3">
+  <h5>Training Management — Quick Request (Table view)</h5>
 
-  <!-- Top row -->
-  <div class="row mb-3 align-items-center">
+  <div class="row g-2">
     <div class="col-md-4">
-      <label class="form-label fw-bold">Training Theme</label>
-      <select id="themeSelector" class="form-select">
-        <option value="">-- Select Theme --</option>
+      <label class="form-label small">Theme</label>
+      <select id="tms_theme" class="form-select form-select-sm"></select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Module</label>
+      <select id="tms_module" class="form-select form-select-sm"></select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small">Participant Type</label>
+      <select id="tms_type" class="form-select form-select-sm">
+        <option value="">Select type</option>
+        <option value="BENEFICIARY">SHG Members</option>
+        <option value="TRAINER">BRPs</option>
       </select>
     </div>
-
-    <div class="col-md-4">
-      <label class="form-label fw-bold">Training Module</label>
-      <select id="moduleSelector" class="form-select" disabled>
-        <option value="">-- Select Module --</option>
-      </select>
-    </div>
-
-    <div class="col-md-2">
-      <label class="form-label fw-bold">Module Days</label>
-      <div id="moduleDays" class="form-control">—</div>
-    </div>
-
-    <div class="col-md-2 text-end">
-      <label class="form-label fw-bold d-block">&nbsp;</label>
-      <button id="refreshBatches" class="btn btn-outline-secondary">Refresh</button>
-    </div>
   </div>
 
-  <!-- Running batches -->
-  <div class="card mb-4">
-    <div class="card-body">
-      <h5 class="card-title">Batches running right now</h5>
-      <p class="text-muted small">Showing batches related to selected theme (server-side data).</p>
+  <div class="mt-3" id="tms_participants_wrapper" style="display:none;">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <strong id="tms_participants_label">Participants</strong>
+      <small class="text-muted" id="tms_partner_info"></small>
+    </div>
 
-      <div class="table-responsive" style="max-height:360px; overflow:auto;">
-        <table class="table table-striped table-sm" id="batchesTable" style="min-width:900px;">
-          <thead class="table-dark">
-            <tr>
-              <th>Batch ID</th>
-              <th>Theme</th>
-              <th>Module</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Days</th>
-              <th>Trainers</th>
-              <th>Participants</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+    <!-- Search & Controls -->
+    <div id="tms_part_controls" class="mb-2" style="display:none;">
+      <div class="d-flex gap-2 align-items-center">
+        <input id="tms_search" class="form-control form-control-sm" placeholder="Search participants..." style="width:280px;">
+        <select id="tms_sort" class="form-select form-select-sm" style="width:150px;">
+          <option value="">Sort</option>
+          <option value="name">Name</option>
+          <option value="village">Village</option>
+        </select>
+        <div class="form-check ms-auto">
+          <input type="checkbox" id="tms_select_all" class="form-check-input">
+          <label for="tms_select_all" class="form-check-label small">Select All</label>
+        </div>
       </div>
     </div>
+
+    <!-- Table container -->
+    <div class="table-responsive" style="max-height:360px; overflow:auto; border:1px solid #eee; padding:6px; border-radius:6px;">
+      <table class="table table-sm table-striped table-bordered mb-0" id="tms_participants_table" style="min-width:900px;">
+        <thead class="table-dark" id="tms_table_head">
+          <!-- dynamically populated -->
+        </thead>
+        <tbody id="tms_table_body">
+          <!-- rows injected here -->
+        </tbody>
+      </table>
+    </div>
   </div>
 
-  <!-- Reporting -->
-  <div class="card mb-4">
-    <div class="card-body" style="min-height:120px;">
-      <h5>Reporting Section (coming)</h5>
-      <p class="text-muted">Detailed reports and charts will be added here later.</p>
-    </div>
+  <div class="mt-3 d-flex gap-2">
+    <button id="tms_nominate" class="btn btn-primary">Nominate Batch</button>
+    <div id="tms_feedback" class="ms-2 align-self-center"></div>
   </div>
 </div>
 
-<!-- Batch Creator Modal (centered) -->
-<div id="batchCreatorModal" class="modal fade" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Batch Creator</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row g-2 mb-2">
-          <div class="col-md-4">
-            <label class="form-label">Theme</label>
-            <select id="panelTheme" class="form-select"></select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Module</label>
-            <select id="panelModule" class="form-select"></select>
-          </div>
-          <div class="col-md-2">
-            <label class="form-label">Days</label>
-            <div id="panelModuleDays" class="form-control">—</div>
-          </div>
-        </div>
-
-        <hr />
-
-        <div id="masterTrainersSection" class="mb-3" style="display:none;">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">Select Master Trainer(s)</h6>
-            <div class="d-flex gap-2">
-              <input id="trainerSearch" class="form-control form-control-sm" placeholder="Search trainers..." style="width:220px;">
-              <select id="trainerSort" class="form-select form-select-sm" style="width:150px;">
-                <option value="">Sort</option>
-                <option value="name">Name</option>
-                <option value="proficiency">Proficiency</option>
-              </select>
-            </div>
-          </div>
-          <div class="table-responsive" style="max-height:220px; overflow:auto;">
-            <table class="table table-sm table-bordered" id="trainersTable">
-              <thead class="table-dark">
-                <tr>
-                  <th style="width:40px;"><input type="checkbox" id="trainerSelectAll"></th>
-                  <th>Name</th>
-                  <th>Certificate</th>
-                  <th>Skills</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-
-        <hr />
-
-        <div class="mb-3">
-          <h6>Select Beneficiaries</h6>
-          <div class="d-flex gap-2 mb-2">
-            <input id="benSearch" class="form-control form-control-sm" placeholder="Search beneficiaries..." style="width:260px;">
-            <select id="benSort" class="form-select form-select-sm" style="width:150px;">
-              <option value="">Sort</option>
-              <option value="member_name">Name</option>
-              <option value="village">Village</option>
-            </select>
-          </div>
-          <div class="table-responsive" style="max-height:280px; overflow:auto;">
-            <table class="table table-sm table-bordered" id="beneficiariesTableTms">
-              <thead class="table-dark">
-                <tr>
-                  <th style="width:40px;"><input type="checkbox" id="benSelectAll"></th>
-                  <th>Member Name</th>
-                  <th>SHG</th>
-                  <th>Village</th>
-                  <th>District</th>
-                  <th>Mobile</th>
-                  <th>Category</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-
-        <hr />
-
-        <div class="mb-3">
-          <label class="form-label">Select Training Partner</label>
-          <div class="d-flex gap-2 align-items-center">
-            <input id="partnerSearch" class="form-control form-control-sm" placeholder="Search partners..." style="width:260px;">
-            <select id="partnerSelector" class="form-select form-select-sm" style="width:360px;">
-              <option value="">-- Select partner --</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button id="createBatchBtn" class="btn btn-primary">Nominate Batch</button>
-        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Quick Actions -->
-<div id="quickActionsCard" style="position:fixed; right:24px; bottom:22px; z-index:4500; width:240px;">
-  <div class="card shadow-sm">
-    <div class="card-body">
-      <h6 class="card-title">Quick Actions</h6>
-      <div class="d-grid gap-2">
-        <button id="openParticipantSelector" class="btn btn-sm btn-primary">Participant Selector for Training Batches</button>
-        <a href="{% url 'create_training_plan' %}" class="btn btn-sm btn-outline-secondary">Training Plan Creator</a>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- JS: populate & wire UI -->
 <script>
 (function(){
-  // parse server-supplied objects
-  const THEMES = Array.isArray(SERVER_THEMES) && SERVER_THEMES.length ? SERVER_THEMES : [
-    { id: 'agr', name: 'Agriculture & Livelihood' },
-    { id: 'health', name: 'Health & Nutrition' },
-    { id: 'women', name: 'Women Empowerment' }
-  ];
-  const MODULES_MAP = (SERVER_MODULES_MAP && Object.keys(SERVER_MODULES_MAP).length) ? SERVER_MODULES_MAP : {};
-  const PARTNERS = Array.isArray(SERVER_PARTNERS) && SERVER_PARTNERS.length ? SERVER_PARTNERS : [];
-  const BENEFICIARIES = Array.isArray(SERVER_BENEFICIARIES) && SERVER_BENEFICIARIES.length ? SERVER_BENEFICIARIES : [];
-  const TRAINERS = Array.isArray(SERVER_TRAINERS) && SERVER_TRAINERS.length ? SERVER_TRAINERS : [];
-  const TRAINERS_MAP = (SERVER_TRAINERS_MAP && Object.keys(SERVER_TRAINERS_MAP).length) ? SERVER_TRAINERS_MAP : {};
-  const BATCHES = Array.isArray(SERVER_BATCHES) && SERVER_BATCHES.length ? SERVER_BATCHES : [];
+  // server blobs
+  const THEMES = Array.isArray(SERVER_THEMES) ? SERVER_THEMES : [];
+  const MODULES_MAP = (SERVER_MODULES_MAP && Object.keys(SERVER_MODULES_MAP||{}).length) ? SERVER_MODULES_MAP : {};
+  const BENEFICIARIES = Array.isArray(SERVER_BENEFICIARIES) ? SERVER_BENEFICIARIES : [];
+  const TRAINERS = Array.isArray(SERVER_TRAINERS) ? SERVER_TRAINERS : [];
 
-  // DOM refs
-  const themeSel = document.getElementById('themeSelector');
-  const moduleSel = document.getElementById('moduleSelector');
-  const moduleDaysEl = document.getElementById('moduleDays');
+  // dom refs
+  const themeSel = document.getElementById('tms_theme');
+  const moduleSel = document.getElementById('tms_module');
+  const typeSel = document.getElementById('tms_type');
+  const wrapper = document.getElementById('tms_participants_wrapper');
+  const tableHead = document.getElementById('tms_table_head');
+  const tableBody = document.getElementById('tms_table_body');
+  const controls = document.getElementById('tms_part_controls');
+  const searchInput = document.getElementById('tms_search');
+  const sortSel = document.getElementById('tms_sort');
+  const selectAllCb = document.getElementById('tms_select_all');
+  const nominateBtn = document.getElementById('tms_nominate');
+  const feedback = document.getElementById('tms_feedback');
+  const participantsLabel = document.getElementById('tms_participants_label');
 
-  const panelTheme = document.getElementById('panelTheme');
-  const panelModule = document.getElementById('panelModule');
-  const panelModuleDays = document.getElementById('panelModuleDays');
-
-  const openParticipantBtn = document.getElementById('openParticipantSelector');
-  const batchModalEl = document.getElementById('batchCreatorModal');
-
-  const trainersTableBody = document.querySelector('#trainersTable tbody');
-  const trainerSearch = document.getElementById('trainerSearch');
-  const trainerSelectAll = document.getElementById('trainerSelectAll');
-
-  const benTableBody = document.querySelector('#beneficiariesTableTms tbody');
-  const benSearch = document.getElementById('benSearch');
-  const benSelectAll = document.getElementById('benSelectAll');
-
-  const partnerSelector = document.getElementById('partnerSelector');
-  const partnerSearch = document.getElementById('partnerSearch');
-
-  const batchesTableBody = document.querySelector('#batchesTable tbody');
-
-  // helpers
-  function clearSelect(sel){ while(sel && sel.options && sel.options.length>0) sel.remove(0); }
-  function addOption(sel, val, label){ const o = document.createElement('option'); o.value = val; o.textContent = label; sel.appendChild(o); }
+  function clear(el){ while(el.firstChild) el.removeChild(el.firstChild); }
 
   function populateThemes(){
-    clearSelect(themeSel); addOption(themeSel, '', '-- Select Theme --');
-    clearSelect(panelTheme); addOption(panelTheme, '', '-- Select Theme --');
-    THEMES.forEach(t=>{
-      const id = t.id !== undefined ? t.id : (t.name || t);
-      const name = t.name || t;
-      addOption(themeSel, id, name);
-      addOption(panelTheme, id, name);
+    clear(themeSel);
+    const op = document.createElement('option'); op.value=''; op.text='Select theme'; themeSel.appendChild(op);
+    THEMES.forEach(t => {
+      const o = document.createElement('option');
+      if(typeof t === 'string'){ o.value = t; o.text = t; }
+      else { o.value = t.id || t.name; o.text = t.name || t.id; }
+      themeSel.appendChild(o);
     });
   }
 
-  function populateModulesForTheme(themeId, targetModuleSel, daysEl){
-    clearSelect(targetModuleSel);
-    addOption(targetModuleSel, '', '-- Select Module --');
-    const modules = MODULES_MAP[themeId] || [];
-    modules.forEach(m=>{
-      addOption(targetModuleSel, m.id || m.name, m.name);
+  function populateModulesForTheme(themeId){
+    clear(moduleSel);
+    const op = document.createElement('option'); op.value=''; op.text='Select module'; moduleSel.appendChild(op);
+    const mods = MODULES_MAP[themeId] || [];
+    mods.forEach(m => {
+      const o = document.createElement('option'); o.value = m.id || m.name; o.text = m.name || m;
+      moduleSel.appendChild(o);
     });
-    targetModuleSel.disabled = (modules.length === 0);
-    if(daysEl) daysEl.textContent = '—';
   }
 
-  function updateModuleDaysFromSelect(sel, daysEl){
-    const v = sel.value;
-    if(!v){ daysEl.textContent = '—'; return; }
-    const themeId = (sel === moduleSel) ? themeSel.value : panelTheme.value;
-    const list = MODULES_MAP[themeId] || [];
-    const found = list.find(x => String(x.id) === String(v) || String(x.name) === String(v));
-    daysEl.textContent = found && (found.days !== undefined && found.days !== null) ? String(found.days) : '—';
-  }
+  function showParticipantsTable(type){
+    clear(tableHead); clear(tableBody);
+    controls.style.display = '';
+    wrapper.style.display = 'block';
+    selectAllCb.checked = false;
+    searchInput.value = '';
 
-  function populatePartners(){
-    clearSelect(partnerSelector);
-    addOption(partnerSelector, '', '-- Select partner --');
-    PARTNERS.forEach(p => addOption(partnerSelector, p.id, p.name));
-  }
-
-  function renderBeneficiaries(filterText){
-    const txt = (filterText || '').toLowerCase();
-    benTableBody.innerHTML = '';
-    BENEFICIARIES.forEach(b => {
-      if(txt){
-        const hay = (b.member_name + ' ' + (b.village||'') + ' ' + (b.shg_name||'') + ' ' + (b.district||'')).toLowerCase();
-        if(hay.indexOf(txt) === -1) return;
-      }
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="checkbox" class="ben-row" data-id="${b.id}"></td>
-        <td>${b.member_name || ''}</td>
-        <td>${b.shg_name || ''}</td>
-        <td>${b.village || ''}</td>
-        <td>${b.district || ''}</td>
-        <td>${b.mobile || ''}</td>
-        <td>${b.category || ''}</td>
+    if(type === 'BENEFICIARY'){
+      participantsLabel.textContent = 'Select Beneficiaries';
+      // head
+      const headRow = document.createElement('tr');
+      headRow.innerHTML = `
+        <th style="width:40px;"><input type="checkbox" id="head_select_all"></th>
+        <th>Member Name</th>
+        <th>SHG</th>
+        <th>Village</th>
+        <th>District</th>
+        <th>Mobile</th>
+        <th>Category</th>
       `;
-      benTableBody.appendChild(tr);
-    });
-    // reattach select-all checkbox logic
-    if(benSelectAll) benSelectAll.checked = false;
-  }
+      tableHead.appendChild(headRow);
 
-  function renderTrainersForPlan(planId, filterText){
-    const txt = (filterText || '').toLowerCase();
-    trainersTableBody.innerHTML = '';
-
-    // Determine trainer ids preselected by TRAINERS_MAP[planId] if present
-    const preIds = new Set(Array.isArray(TRAINERS_MAP[planId]) ? TRAINERS_MAP[planId] : []);
-
-    TRAINERS.forEach(t => {
-      // If we want to show only trainers matching the plan, use preIds or fallback matching
-      let show = true;
-      // if preIds non-empty, show only those
-      if(preIds.size > 0) show = preIds.has(t.id);
-      // else fallback: show if t.skills contains the training name/theme tokens
-      if(!preIds.size && planId){
-        // find training plan info inside MODULES_MAP (we used TrainingPlan.id as module id)
-        let planName = '';
-        for(const themeKey of Object.keys(MODULES_MAP || {})){
-          const arr = MODULES_MAP[themeKey];
-          for(const m of arr){
-            if(String(m.id) === String(planId)){ planName = (m.name || ''); break; }
-          }
-          if(planName) break;
-        }
-        if(planName){
-          const toks = (t.skills || '').toLowerCase();
-          if(toks && toks.indexOf(planName.toLowerCase()) !== -1){
-            show = true;
-          } else {
-            // also show if trainer's skills contain themeKey tokens
-            const themeKeys = Object.keys(MODULES_MAP || {});
-            for(const tk of themeKeys){
-              if(String(tk) === String(planName) || (t.skills || '').toLowerCase().indexOf(tk.toLowerCase()) !== -1){
-                show = true; break;
-              }
-            }
-          }
-        }
-      }
-
-      if(!show) return;
-
-      if(txt){
-        const hay = (t.full_name + ' ' + (t.certificate_number||'') + ' ' + (t.skills||'')).toLowerCase();
-        if(hay.indexOf(txt) === -1) return;
-      }
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="checkbox" class="trainer-row" data-id="${t.id}"></td>
-        <td>${t.full_name || ''}</td>
-        <td>${t.certificate_number || ''}</td>
-        <td>${t.skills || ''}</td>
+      // body rows
+      BENEFICIARIES.forEach(b => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox" class="tms-row" data-id="${b.id}"></td>
+          <td>${escapeHtml(b.member_name)}</td>
+          <td>${escapeHtml(b.shg_name)}</td>
+          <td>${escapeHtml(b.village)}</td>
+          <td>${escapeHtml(b.district)}</td>
+          <td>${escapeHtml(b.mobile)}</td>
+          <td>${escapeHtml(b.category)}</td>
+        `;
+        tableBody.appendChild(tr);
+      });
+    } else if(type === 'TRAINER'){
+      participantsLabel.textContent = 'Select Master Trainers';
+      const headRow = document.createElement('tr');
+      headRow.innerHTML = `
+        <th style="width:40px;"><input type="checkbox" id="head_select_all"></th>
+        <th>Name</th>
+        <th>Certificate</th>
+        <th>Skills / Notes</th>
+        <th>Phone</th>
       `;
-      trainersTableBody.appendChild(tr);
-    });
+      tableHead.appendChild(headRow);
 
-    if(trainerSelectAll) trainerSelectAll.checked = false;
-  }
+      TRAINERS.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox" class="tms-row" data-id="${t.id}"></td>
+          <td>${escapeHtml(t.full_name)}</td>
+          <td>${escapeHtml(t.certificate_number)}</td>
+          <td>${escapeHtml(t.skills)}</td>
+          <td>${escapeHtml(t.mobile)}</td>
+        `;
+        tableBody.appendChild(tr);
+      });
+    } else {
+      // nothing
+      wrapper.style.display = 'none';
+      controls.style.display = 'none';
+    }
 
-  function renderBatches(themeId){
-    batchesTableBody.innerHTML = '';
-    // If themeId provided, filter batches to that theme
-    const rows = BATCHES.filter(b => {
-      if(!themeId) return true;
-      return String(b.theme || '') === String(themeId) || String(b.theme || '').toLowerCase().indexOf(String(themeId).toLowerCase()) !== -1;
-    });
-
-    rows.forEach(b => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${b.code || b.id}</td>
-        <td>${b.theme || ''}</td>
-        <td>${b.module || ''}</td>
-        <td>${b.start || ''}</td>
-        <td>${b.end || ''}</td>
-        <td>${b.days || ''}</td>
-        <td>${b.trainers_count || 0}</td>
-        <td>${b.participants_count || 0}</td>
-        <td>${b.status || ''}</td>
-      `;
-      batchesTableBody.appendChild(tr);
-    });
-  }
-
-  // select-all logic for trainers and beneficiaries
-  function initSelectAlls(){
-    if(trainerSelectAll){
-      trainerSelectAll.addEventListener('change', function(){
-        const checked = !!this.checked;
-        document.querySelectorAll('.trainer-row').forEach(cb => cb.checked = checked);
+    // wire head select all
+    const headAll = document.getElementById('head_select_all');
+    if(headAll){
+      headAll.addEventListener('change', function(){ 
+        const ch = !!this.checked;
+        document.querySelectorAll('#tms_table_body .tms-row').forEach(cb => cb.checked = ch);
+        selectAllCb.checked = ch;
       });
     }
-    if(benSelectAll){
-      benSelectAll.addEventListener('change', function(){
-        const checked = !!this.checked;
-        document.querySelectorAll('.ben-row').forEach(cb => cb.checked = checked);
-      });
-    }
+    // wire global selectAll checkbox to behave same
+    selectAllCb.onchange = function(){ const ch = !!this.checked; document.querySelectorAll('#tms_table_body .tms-row').forEach(cb => cb.checked = ch); const headAll2 = document.getElementById('head_select_all'); if(headAll2) headAll2.checked = ch; };
   }
 
-  function openBatchModal(){
-    // sync panel theme/module with top selects
-    panelTheme.value = themeSel.value || '';
-    populateModulesForTheme(panelTheme.value, panelModule, panelModuleDays);
-    // show/hide trainer section based on module presence
-    document.getElementById('masterTrainersSection').style.display = panelModule.value ? '' : 'none';
-
-    // populate trainers (for selected plan if any)
-    renderTrainersForPlan(panelModule.value, '');
-    renderBeneficiaries();
-    populatePartners();
-
-    const modal = new bootstrap.Modal(batchModalEl);
-    modal.show();
+  function escapeHtml(s){
+    if(s === null || s === undefined) return '';
+    return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
   }
 
-  function gatherAndSubmitBatch(){
-    const payload = {};
-    payload.theme = panelTheme.value || '';
-    payload.moduleId = panelModule.value || '';
-    // collect trainers selected
-    payload.trainers = Array.from(document.querySelectorAll('.trainer-row:checked')).map(cb => cb.dataset.id);
-    payload.beneficiaries = Array.from(document.querySelectorAll('.ben-row:checked')).map(cb => cb.dataset.id);
-    payload.partner = partnerSelector.value || '';
-
-    // Optionally collect start/end if you add inputs
-    payload.start = null;
-    payload.end = null;
-
-    const url = "{% url 'tms_create_batch' %}";
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest' },
-      body: JSON.stringify(payload)
-    }).then(r => r.json())
-    .then(data => {
-      if(data && data.ok){
-        bootstrap.Modal.getInstance(batchModalEl)?.hide();
-        // refresh batches by reloading page fragment or updating BATCHES variable
-        alert('Batch created: ' + (data.batch_id || 'id unknown'));
-        // best-effort: append created batch to UI (server is authoritative; consider reload)
-      } else {
-        alert('Failed to create batch: ' + (data && data.message ? data.message : 'server error'));
-      }
-    }).catch(err => {
-      console.error('create batch failed', err);
-      alert('Create request failed — see console.');
+  function filterTable(text){
+    text = (text||'').toLowerCase().trim();
+    Array.from(tableBody.rows).forEach(r => {
+      const hay = r.textContent.toLowerCase();
+      r.style.display = (!text || hay.indexOf(text) !== -1) ? '' : 'none';
     });
+  }
+
+  function collectCheckedIds(){
+    return Array.from(document.querySelectorAll('#tms_table_body .tms-row:checked')).map(cb => parseInt(cb.dataset.id));
   }
 
   // wire events
-  function wire(){
-    themeSel.addEventListener('change', function(){ populateModulesForTheme(this.value, moduleSel, moduleDaysEl); renderBatches(this.value); });
-    moduleSel.addEventListener('change', function(){ updateModuleDaysFromSelect(this, moduleDaysEl); });
+  themeSel.addEventListener('change', function(){ populateModulesForTheme(this.value); });
+  moduleSel.addEventListener('change', function(){ /* can show partner info if available */ });
 
-    panelTheme.addEventListener('change', function(){ populateModulesForTheme(this.value, panelModule, panelModuleDays); });
-    panelModule.addEventListener('change', function(){ updateModuleDaysFromSelect(panelModule, panelModuleDays); renderTrainersForPlan(panelModule.value, ''); document.getElementById('masterTrainersSection').style.display = panelModule.value ? '' : 'none'; });
+  typeSel.addEventListener('change', function(){
+    const t = (this.value||'').toUpperCase();
+    if(!t){ wrapper.style.display='none'; controls.style.display='none'; return; }
+    showParticipantsTable(t);
+  });
 
-    openParticipantBtn?.addEventListener('click', openBatchModal);
-    document.getElementById('createBatchBtn')?.addEventListener('click', gatherAndSubmitBatch);
+  searchInput.addEventListener('input', function(){ filterTable(this.value); });
 
-    trainerSearch?.addEventListener('input', function(){ renderTrainersForPlan(panelModule.value, this.value); });
-    benSearch?.addEventListener('input', function(){ renderBeneficiaries(this.value); });
+  nominateBtn.addEventListener('click', function(){
+    feedback.textContent = '';
+    const moduleId = moduleSel.value;
+    const trainingType = (typeSel.value || '').toUpperCase();
+    if(!moduleId){ feedback.innerHTML = '<span class="text-danger small">Please select module.</span>'; return; }
+    if(!trainingType){ feedback.innerHTML = '<span class="text-danger small">Please select training type.</span>'; return; }
+    const checked = collectCheckedIds();
+    if(checked.length === 0){ feedback.innerHTML = '<span class="text-danger small">Please select at least one participant.</span>'; return; }
 
-    partnerSearch?.addEventListener('input', function(){
-      const q = (this.value||'').toLowerCase();
-      Array.from(partnerSelector.options).forEach(opt => {
-        if(!opt.value){ opt.hidden = false; return; }
-        opt.hidden = q && opt.text.toLowerCase().indexOf(q) === -1;
-      });
-    });
+    nominateBtn.disabled = true; nominateBtn.innerText = 'Nominate...';
 
-    document.getElementById('refreshBatches')?.addEventListener('click', function(){ renderBatches(themeSel.value); });
+    fetch("{% url 'create_training_request' %}", {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-CSRFToken': (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || ''},
+      body: JSON.stringify({
+        training_plan_id: parseInt(moduleId),
+        training_type: trainingType,
+        participant_ids: checked,
+        level: 'BLOCK'
+      })
+    }).then(r => r.json()).then(data => {
+      if(data && data.ok){
+        feedback.innerHTML = '<span class="text-success small">Request created (ID: '+data.request_id+'). Partner assigned: '+(data.partner_assigned||'N/A')+'</span>';
+        // reset UI
+        moduleSel.value=''; typeSel.value=''; wrapper.style.display='none'; clear(tableBody); clear(tableHead); controls.style.display='none';
+      } else {
+        feedback.innerHTML = '<span class="text-danger small">'+(data.message || 'Server error')+'</span>';
+      }
+    }).catch(err => {
+      console.error(err);
+      feedback.innerHTML = '<span class="text-danger small">Network or server error.</span>';
+    }).finally(()=>{ nominateBtn.disabled=false; nominateBtn.innerText='Nominate Batch'; });
+  });
 
-    initSelectAlls();
-  }
-
-  // initial populate + render existing batches
-  try {
+  // init
+  try{
     populateThemes();
-    populateModulesForTheme('', moduleSel, moduleDaysEl);
-    populatePartners();
-    renderBeneficiaries();
-    renderBatches('');
-    wire();
-  } catch(e){
-    console.error('tms init error', e);
-  }
+    populateModulesForTheme('');
+  }catch(e){ console.error('tms table init error', e); }
 })();
 </script>
