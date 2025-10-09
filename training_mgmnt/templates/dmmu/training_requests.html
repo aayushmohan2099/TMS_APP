@@ -12,6 +12,7 @@
           <th>Level</th>
           <th>Requested by</th>
           <th>Beneficiaries</th>
+          <th>Status</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -32,14 +33,18 @@
               </td>
               <td>{{ tr.beneficiaries.count }}</td>
               <td>
+                {# show status badges as before #}
                 {% if status == "ONGOING" %}
                   <span class="badge bg-success">Approved</span>
-                {% elif status == "COMPLETED" %}
-                  <span class="badge bg-secondary">Completed</span>
                 {% elif status == "REJECTED" %}
                   <span class="badge bg-danger">Rejected</span>
-                {% else %}
-                  <a class="btn btn-sm btn-primary" href="{% url 'dmmu_request_detail' tr.id %}">Open</a>
+                {% elif status == "COMPLETED" %}
+                  <span class="badge bg-secondary">Completed</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if status == "COMPLETED" %}
+                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">Closure</a>
                 {% endif %}
               </td>
             </tr>

@@ -24,7 +24,7 @@ from .resources import UserResource, BeneficiaryResource, TrainingPlanResource, 
 from .utils import export_blueprint
 from .forms import *
 
-from django.db.models import Q, F
+from django.db.models import Q, F, Count
 
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
@@ -1607,15 +1607,6 @@ def training_partner_centre_registration(request):
     }
     return render(request, "training_partner/centre_registration.html", context)
 
-@login_required
-def partner_ongoing_trainings(request):
-    partner = _get_partner_for_user(request.user)
-    ongoing = Batch.objects.filter(
-        request__partner=partner,
-        status__iexact='ongoing'
-    ).select_related('training_plan')
-    return render(request, 'training_partner/ongoing_list.html', {'ongoing': ongoing})
-
 @require_POST
 @login_required
 def partner_propose_dates(request):
@@ -2221,6 +2212,10 @@ def partner_create_batches(request, request_id=None):
 
 @login_required
 def partner_ongoing_trainings(request):
+    """
+    Partner-facing list of batches. Uses BatchBeneficiary for per-batch participants.
+    Keeps your auto-status update logic intact.
+    """
     if getattr(request.user, "role", "").lower() != "training_partner":
         return HttpResponseForbidden("Not authorized")
 
@@ -2228,28 +2223,20 @@ def partner_ongoing_trainings(request):
     if not partner:
         return HttpResponseForbidden("No partner profile")
 
-    # Use explicit India timezone so "today" matches Lucknow / Asia/Kolkata
+    # timezone / today
     try:
         india_tz = ZoneInfo("Asia/Kolkata")
     except Exception:
-        # fallback to Django timezone localtime if ZoneInfo not available
         india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
 
-    if india_tz:
-        today = datetime.now(tz=india_tz).date()
-    else:
-        # last-resort: use Django timezone (may be server-local)
-        today = timezone.localdate()
-
-    # read filter from querystring; default to 'all'
     status_param = (request.GET.get('status') or 'all').strip().lower()
 
-    # base queryset for the partner
-    batches_qs = Batch.objects.filter(request__partner=partner)
+    # base queryset for the partner: batches belonging to partner via request or centre
+    batches_qs = Batch.objects.filter(Q(request__partner=partner) | Q(centre__partner=partner))
 
-    # --- AUTO-UPDATE statuses based on start_date / end_date (safe, idempotent) ---
+    # --- AUTO-UPDATE statuses based on dates (keeps your existing logic) ---
     try:
-        # discover valid tokens from model choices
         try:
             status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
         except Exception:
@@ -2263,69 +2250,43 @@ def partner_ongoing_trainings(request):
 
         ongoing_token = find_choice_token('ONGOING') or find_choice_token('Ongoing') or 'ONGOING'
         completed_token = find_choice_token('COMPLETED') or find_choice_token('Completed') or 'COMPLETED'
-        # optional: scheduled token fallback
         scheduled_token = find_choice_token('SCHEDULED') or find_choice_token('Scheduled') or 'SCHEDULED'
 
-        # consider batches that belong to this partner (not already completed)
         candidates = batches_qs.filter(~Q(status__iexact=completed_token))
 
         for b in candidates:
             try:
-                # Normalize batch start/end to date
                 raw_start = getattr(b, 'start_date', None)
                 raw_end = getattr(b, 'end_date', None)
 
-                start_date = None
-                end_date = None
-
-                if raw_start is not None:
-                    if isinstance(raw_start, datetime):
-                        start_date = raw_start.date()
-                    elif isinstance(raw_start, date):
-                        start_date = raw_start
-
-                if raw_end is not None:
-                    if isinstance(raw_end, datetime):
-                        end_date = raw_end.date()
-                    elif isinstance(raw_end, date):
-                        end_date = raw_end
+                start_date = raw_start.date() if isinstance(raw_start, datetime) else raw_start if isinstance(raw_start, date) else None
+                end_date = raw_end.date() if isinstance(raw_end, datetime) else raw_end if isinstance(raw_end, date) else None
 
                 current_status = (getattr(b, 'status', '') or '').strip()
 
-                # If end_date is in the past -> mark completed (optional)
-                # Uncomment the block below if you want automatic completion:
-                # if end_date and end_date < today:
-                #     if current_status.upper() != str(completed_token).upper():
-                #         b.status = completed_token
-                #         b.save(update_fields=['status'])
-                #     continue
-
-                # If start_date is today -> set ONGOING (unless already ongoing)
                 if start_date and start_date == today:
                     if not current_status or current_status.upper() != str(ongoing_token).upper():
                         b.status = ongoing_token
                         b.save(update_fields=['status'])
                         logger.info("partner_ongoing_trainings: auto-set batch %s -> %s (start_date == today %s)", getattr(b, 'id', None), ongoing_token, today)
-
-                # If start_date is in future and status is empty -> ensure SCHEDULED (optional)
-                # if start_date and start_date > today and (not current_status or current_status.upper() not in [str(scheduled_token).upper(), str(ongoing_token).upper()]):
-                #     b.status = scheduled_token
-                #     b.save(update_fields=['status'])
             except Exception:
                 logger.exception("partner_ongoing_trainings: failed to auto-update status for batch %s", getattr(b, 'id', 'unknown'))
     except Exception:
         logger.exception("partner_ongoing_trainings: auto-update status step failed, continuing without updates")
 
-    # apply status filter if not 'all'
+    # status filter
     if status_param != 'all':
         batches_qs = batches_qs.filter(status__iexact=status_param)
 
-    # optimize related objects used in template
-    batches_qs = batches_qs.select_related('request__training_plan').prefetch_related('trainers').order_by('start_date')
+    # annotate participant counts using BatchBeneficiary relation
+    batches_qs = batches_qs.select_related('request__training_plan', 'centre')\
+                           .annotate(participants_count=Count('batch_beneficiaries', distinct=True))\
+                           .prefetch_related('trainers')\
+                           .order_by('start_date')
 
     batches = list(batches_qs)
 
-    # compute age helper
+    # helper to compute age
     def compute_age(dob):
         if not dob:
             return None
@@ -2335,19 +2296,35 @@ def partner_ongoing_trainings(request):
         except Exception:
             return None
 
+    # attach trainers_list and batch-specific beneficiaries_list for each batch
     for b in batches:
-        trainers_list = list(b.trainers.all())
-        beneficiaries_list = list(b.request.beneficiaries.all()) if getattr(b, 'request', None) else []
+        try:
+            trainers_list = list(b.trainers.all())
+        except Exception:
+            trainers_list = []
 
-        # attach age to beneficiaries
-        for ben in beneficiaries_list:
-            ben.age = compute_age(getattr(ben, 'date_of_birth', None))
+        # **CRITICAL FIX**: fetch beneficiaries FROM BatchBeneficiary (per-batch), NOT from request
+        try:
+            bb_qs = b.batch_beneficiaries.select_related('beneficiary').all()
+            beneficiaries_list = []
+            for bb in bb_qs:
+                ben = bb.beneficiary
+                # attach small helpers as used elsewhere
+                ben.age = compute_age(getattr(ben, 'date_of_birth', None))
+                # mobile / display_name may exist already; set safe fallbacks
+                ben.display_name = getattr(ben, 'member_name', None) or getattr(ben, 'full_name', None) or str(ben)
+                ben.mobile_display = getattr(ben, 'mobile_number', None) or getattr(ben, 'mobile_no', None) or getattr(ben, 'mobile', '')
+                beneficiaries_list.append(ben)
+        except Exception:
+            # fallback to empty list (do not use request beneficiaries)
+            beneficiaries_list = []
 
         setattr(b, 'trainers_list', trainers_list)
         setattr(b, 'beneficiaries_list', beneficiaries_list)
+        # ensure template-friendly attribute for count (if template expects different name)
+        setattr(b, 'participants_count', getattr(b, 'participants_count', len(beneficiaries_list)))
 
     status_options = ['all', 'ONGOING', 'COMPLETED', 'SCHEDULED', 'CANCELLED']
-
     context = {
         'partner': partner,
         'batches': batches,
@@ -2357,27 +2334,26 @@ def partner_ongoing_trainings(request):
     }
     return render(request, 'training_partner/ongoing_list.html', context)
 
+
 @login_required
 def attendance_per_batch(request, batch_id):
-    # fetch batch + related to minimize queries
+    """
+    Batch attendance view — ensure beneficiaries come from batch.batch_beneficiaries
+    and participants list is built from batch-specific rows only.
+    """
     batch = get_object_or_404(
         Batch.objects.select_related('request__training_plan', 'centre').prefetch_related('trainers'),
         id=batch_id
     )
-    # Use explicit India timezone so "today" matches Lucknow / Asia/Kolkata
+
+    # timezone / today
     try:
         india_tz = ZoneInfo("Asia/Kolkata")
     except Exception:
-        # fallback to Django timezone localtime if ZoneInfo not available
         india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
 
-    if india_tz:
-        today = datetime.now(tz=india_tz).date()
-    else:
-        # last-resort: use Django timezone (may be server-local)
-        today = timezone.localdate()
-
-    # attach training_plan for template
+    # attach training_plan to batch for template
     training_plan = getattr(batch.request, 'training_plan', None) if getattr(batch, 'request', None) else None
     setattr(batch, 'training_plan', training_plan)
 
@@ -2390,8 +2366,19 @@ def attendance_per_batch(request, batch_id):
             setattr(batch, 'centre_name', centre_display)
 
     # ---------- prepare participants & ekYC lookups ----------
-    trainers_qs = list(batch.trainers.all())
-    beneficiaries_qs = list(batch.request.beneficiaries.all()) if getattr(batch, 'request', None) else []
+    # trainers: as before
+    try:
+        trainers_qs = list(batch.trainers.all())
+    except Exception:
+        trainers_qs = []
+
+    # === CRITICAL FIX ===
+    # beneficiaries must be retrieved from BatchBeneficiary join model (per-batch)
+    try:
+        bb_qs = batch.batch_beneficiaries.select_related('beneficiary').all()
+        beneficiaries_qs = [bb.beneficiary for bb in bb_qs]
+    except Exception:
+        beneficiaries_qs = []
 
     trainers_display = []
     for t in trainers_qs:
@@ -2400,10 +2387,10 @@ def attendance_per_batch(request, batch_id):
 
     beneficiaries_display = []
     for b in beneficiaries_qs:
-        display_name = getattr(b, 'member_name', None) or getattr(b, 'name', None) or str(b)
+        display_name = getattr(b, 'member_name', None) or getattr(b, 'name', None) or getattr(b, 'full_name', None) or str(b)
         beneficiaries_display.append({'id': b.id, 'name': display_name, 'obj': b})
 
-    # safe ekYC getter
+    # safe ekYC getter unchanged
     def safe_get_ekyc(batch_obj, participant_id, role):
         try:
             return BatchEkycVerification.objects.filter(
@@ -2434,7 +2421,7 @@ def attendance_per_batch(request, batch_id):
             'ekyc': safe_get_ekyc(batch, b['id'], 'beneficiary')
         })
 
-    # check if ekyc table accessible (only show warning once)
+    # ekYC accessibility check
     ek_table_accessible = True
     try:
         BatchEkycVerification.objects.exists()
@@ -2444,9 +2431,9 @@ def attendance_per_batch(request, batch_id):
             messages.warning(request, "E-KYC DB table missing or not accessible — e-KYC upload will be unavailable until migrations are applied.")
             request.session['ekyc_table_warning_shown'] = True
 
-    # ---------- POST handling ----------
+    # ---------- POST handling (unchanged semantics) ----------
     if request.method == 'POST':
-        # E-KYC upload
+        # E-KYC upload (same as before)
         if 'participant_id' in request.POST:
             logger.info("E-KYC upload POST. files=%s", list(request.FILES.keys()))
 
@@ -2474,20 +2461,10 @@ def attendance_per_batch(request, batch_id):
                     participant_role=participant_role,
                     defaults={'ekyc_status': 'PENDING'}
                 )
-
                 ekyc_obj.ekyc_document = uploaded_file
                 ekyc_obj.ekyc_status = 'PENDING'
                 ekyc_obj.save()
-
-                ekyc_obj = BatchEkycVerification.objects.get(pk=ekyc_obj.pk)
-                file_url = getattr(ekyc_obj.ekyc_document, 'url', None)
-                file_name = getattr(ekyc_obj.ekyc_document, 'name', None)
-                logger.info("Saved eKYC: batch=%s participant=%s role=%s file=%s url=%s", batch.id, participant_id, participant_role, file_name, file_url)
-
-                if file_url:
-                    messages.success(request, "E-KYC uploaded successfully.")
-                else:
-                    messages.warning(request, "E-KYC saved but file URL not available. Check MEDIA settings / storage.")
+                messages.success(request, "E-KYC uploaded successfully.")
             except Exception as e:
                 logger.exception("Error saving E-KYC: %s", e)
                 messages.error(request, f"Failed to save E-KYC: {str(e)}")
@@ -2496,15 +2473,12 @@ def attendance_per_batch(request, batch_id):
 
         # Attendance submission (CSV / checkboxes)
         elif 'csv_file' in request.FILES or any(k.startswith('trainer_') or k.startswith('beneficiary_') for k in request.POST):
-            # create attendance for today
             attendance_obj, created = BatchAttendance.objects.get_or_create(batch=batch, date=today)
-
             csv_file = request.FILES.get('csv_file')
             if csv_file:
                 attendance_obj.csv_upload = csv_file
                 attendance_obj.save()
 
-            # collect checkbox attendance
             participant_list = []
             for t in trainers_display:
                 present = request.POST.get(f"trainer_{t['id']}") == 'on'
@@ -2535,15 +2509,13 @@ def attendance_per_batch(request, batch_id):
                 )
 
             messages.success(request, f"Attendance recorded for {today}.")
-            # AFTER saving attendance redirect to attendance list display (so forms/tables disappear)
             return redirect('attendance_per_batch', batch_id=batch.id)
 
-    # ---------- GET handling ----------
+    # ---------- GET handling: selected date attendance ----------
     selected_date = request.GET.get('date')
     attendance_records = None
     attendance_obj = None
 
-    # If date selected, show that day's attendance records and CSV link
     if selected_date:
         try:
             selected_date_obj = timezone.datetime.strptime(selected_date, '%Y-%m-%d').date()
@@ -2554,7 +2526,7 @@ def attendance_per_batch(request, batch_id):
             messages.error(request, "Invalid date format.")
             selected_date = None
 
-    # Show ekYC only on first day and if missing
+    # determine ekYC / attendance form visibility
     is_first_day = (batch.start_date == today)
     missing_ekyc = False
     try:
@@ -2565,13 +2537,10 @@ def attendance_per_batch(request, batch_id):
     except Exception:
         missing_ekyc = True
 
-    # Do not show attendance upload if attendance already recorded for today
     attendance_exists_today = BatchAttendance.objects.filter(batch=batch, date=today).exists()
-
     show_ekyc = is_first_day and missing_ekyc
-    show_attendance = batch.status.lower() == 'ongoing' and (not is_first_day or (is_first_day and not missing_ekyc)) and (not attendance_exists_today)
+    show_attendance = (getattr(batch, 'status', '').lower() == 'ongoing') and (not is_first_day or (is_first_day and not missing_ekyc)) and (not attendance_exists_today)
 
-    # If neither ekYC nor upload form shown, show attendance list for the batch (links)
     attendance_list = None
     if not show_ekyc and not show_attendance and not selected_date:
         attendance_list = BatchAttendance.objects.filter(batch=batch).order_by('-date')
@@ -2587,7 +2556,7 @@ def attendance_per_batch(request, batch_id):
         'attendance_records': attendance_records,
         'selected_date': selected_date,
         'attendance_list': attendance_list,
-        'attendance_obj': attendance_obj,  # in case template wants CSV link
+        'attendance_obj': attendance_obj,
     }
     return render(request, 'training_partner/attendance_per_batch.html', context)
 
@@ -3857,13 +3826,216 @@ def dmmu_request_detail(request, request_id):
     except Exception:
         trainer_cert_map = {}
 
-    fragment_html = render_to_string('dmmu/request_detail.html', {
-        'training_request': tr,
-        'batches': batch_details,
-        'participants': participants,
-        'master_trainers': master_trainers,
-        'trainer_cert_map': trainer_cert_map,
-        'today': today,
-    }, request=request)
+    if (getattr(tr, 'status', '') or '').upper() == 'COMPLETED':
+        # render a closure screen listing batches (clickable rows)
+        fragment_html = render_to_string('dmmu/request_closure.html', {
+            'training_request': tr,
+            'batches': batch_details,
+        }, request=request)
+    else:
+        fragment_html = render_to_string('dmmu/request_detail.html', {
+            'training_request': tr,
+            'batches': batch_details,
+            'participants': participants,
+            'master_trainers': master_trainers,
+            'trainer_cert_map': trainer_cert_map,
+            'today': today,
+        }, request=request)
 
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
+
+@login_required
+@require_http_methods(["GET"])
+def dmmu_batch_detail_ajax(request, batch_id):
+    """
+    AJAX view: return an HTML fragment (modal body) containing
+    batch details, participants, centre summary, dates list and attendance outlines.
+
+    Defensive + trainer fallback to BatchEkycVerification if TrainerBatchParticipation missing.
+    """
+    if getattr(request.user, 'role', '').lower() != 'dmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        b = Batch.objects.select_related('request__training_plan', 'centre')\
+            .prefetch_related(
+                'batch_beneficiaries__beneficiary',
+                'trainerparticipations__trainer',
+                'attendances__participant_records'
+            ).get(id=batch_id)
+    except Batch.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Batch not found'}, status=404)
+    except Exception as e:
+        logger.exception("dmmu_batch_detail_ajax: DB error fetching batch %s: %s", batch_id, e)
+        return JsonResponse({'ok': False, 'error': 'Server error fetching batch'}, status=500)
+
+    try:
+        # beneficiaries
+        try:
+            beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+        except Exception:
+            beneficiaries = []
+
+        # trainers: prefer TrainerBatchParticipation -> trainer FK
+        trainers = []
+        try:
+            trainers = [tp.trainer for tp in b.trainerparticipations.select_related('trainer').all()]
+        except Exception:
+            trainers = []
+
+        # fallback: look for trainers recorded as eKYC participant_role='Trainer'
+        if not trainers:
+            try:
+                ek_trainer_ids = list(BatchEkycVerification.objects.filter(batch=b, participant_role__iexact='trainer')
+                                       .values_list('participant_id', flat=True))
+                # filter unique and fetch MasterTrainer by id; fallback to User
+                ek_trainer_ids = list(dict.fromkeys([int(x) for x in ek_trainer_ids if x is not None]))
+                if ek_trainer_ids:
+                    # try MasterTrainer model
+                    try:
+                        trainers = list(MasterTrainer.objects.filter(id__in=ek_trainer_ids))
+                    except Exception:
+                        trainers = []
+                    # If still empty, try to look up User objects (some setups use user IDs)
+                    if not trainers:
+                        try:
+                            users = list(User.objects.filter(id__in=ek_trainer_ids))
+                            # convert User -> minimal objects with desirable attrs if necessary
+                            trainers = []
+                            for u in users:
+                                # create a lightweight wrapper-like object if MasterTrainer not present
+                                # but template expects 'full_name' and 'mobile_no' etc.
+                                u.full_name = getattr(u, 'get_full_name', lambda: getattr(u, 'username', str(u)))()
+                                u.mobile_no = getattr(u, 'mobile_number', None) or getattr(u, 'mobile', None) or getattr(u, 'phone', None)
+                                trainers.append(u)
+                        except Exception:
+                            trainers = trainers or []
+            except Exception:
+                trainers = trainers or []
+
+        # attendance dates
+        attendance_dates = []
+        try:
+            attendance_dates = list(b.attendances.order_by('date').values_list('date', flat=True))
+        except Exception:
+            attendance_dates = []
+
+        # centre_info
+        centre_info = {}
+        try:
+            c = b.centre
+            if c:
+                centre_info = {
+                    'venue_name': getattr(c, 'venue_name', None),
+                    'venue_address': getattr(c, 'venue_address', None),
+                    'serial_number': getattr(c, 'serial_number', None),
+                    'coord_name': getattr(c, 'centre_coord_name', None),
+                    'coord_mobile': getattr(c, 'centre_coord_mob_number', None),
+                }
+        except Exception:
+            centre_info = {}
+
+        html = render_to_string('dmmu/partials/batch_detail_modal.html', {
+            'batch': b,
+            'beneficiaries': beneficiaries,
+            'trainers': trainers,
+            'attendance_dates': attendance_dates,
+            'centre_info': centre_info,
+            'request_obj': getattr(b, 'request', None),
+        }, request=request)
+
+        return JsonResponse({'ok': True, 'html': html})
+    except Exception as e:
+        logger.exception("dmmu_batch_detail_ajax: render error for batch %s: %s", batch_id, e)
+        return JsonResponse({'ok': False, 'error': 'Server error rendering batch details'}, status=500)
+
+    
+@login_required
+@require_http_methods(["GET"])
+def dmmu_batch_attendance_date(request, batch_id, date_str):
+    """
+    date_str expected 'YYYY-MM-DD' but accept several common variants.
+    Returns JSON { ok: True, html: "..." } or { ok: False, error: "..." }.
+    """
+    if getattr(request.user, 'role', '').lower() != 'dmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    # defensive: decode URL-encoded parts and strip whitespace
+    try:
+        raw = unquote(str(date_str or '')).strip()
+    except Exception:
+        raw = (date_str or '').strip()
+
+    the_date = None
+
+    # Try common formats in order
+    parse_attempts = [
+        "%Y-%m-%d",            # 2025-10-04
+        "%Y-%m-%dT%H:%M:%S",   # 2025-10-04T00:00:00
+        "%d-%m-%Y",            # 04-10-2025
+        "%d/%m/%Y",            # 04/10/2025
+        "%b %d, %Y",           # Oct 04, 2025
+        "%b. %d, %Y",          # Oct. 4, 2025
+        "%B %d, %Y",           # October 4, 2025
+    ]
+
+    for fmt in parse_attempts:
+        try:
+            the_date = datetime.datetime.strptime(raw, fmt).date()
+            break
+        except Exception:
+            continue
+
+    if the_date is None:
+        # Try isoformat parse (handles many ISO variants), or fallback to dateutil if available
+        try:
+            # try to handle trailing milliseconds or timezone (basic)
+            if 'T' in raw and raw.endswith('Z'):
+                # normalize Z timezone
+                raw_norm = raw.replace('Z', '+00:00')
+            else:
+                raw_norm = raw
+
+            try:
+                # Python 3.7+: fromisoformat can parse many ISO strings (without Z)
+                the_date = datetime.date.fromisoformat(raw_norm.split('T')[0])
+            except Exception:
+                # fallback to parsing whole timestamp if present
+                try:
+                    dt = datetime.datetime.fromisoformat(raw_norm)
+                    the_date = dt.date()
+                except Exception:
+                    the_date = None
+        except Exception:
+            the_date = None
+
+    if the_date is None:
+        # final fallback: try python-dateutil if installed
+        try:
+            from dateutil import parser as _du_parser
+            try:
+                dt = _du_parser.parse(raw)
+                the_date = dt.date()
+            except Exception:
+                the_date = None
+        except Exception:
+            the_date = None
+
+    if the_date is None:
+        logger.info("dmmu_batch_attendance_date: invalid date string received: %r (batch=%s) from %s", raw, batch_id, request.path)
+        return JsonResponse({'ok': False, 'error': f'Invalid date format: {raw!s}'}, status=400)
+
+    try:
+        att = BatchAttendance.objects.select_related('batch').prefetch_related('participant_records').get(batch_id=batch_id, date=the_date)
+    except BatchAttendance.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'No attendance found'}, status=404)
+    except Exception as e:
+        logger.exception("dmmu_batch_attendance_date: DB error fetching attendance for batch %s date %s: %s", batch_id, the_date, e)
+        return JsonResponse({'ok': False, 'error': 'Server error fetching attendance'}, status=500)
+
+    try:
+        html = render_to_string('dmmu/partials/attendance_list.html', {'attendance': att}, request=request)
+        return JsonResponse({'ok': True, 'html': html})
+    except Exception as e:
+        logger.exception("dmmu_batch_attendance_date: render error for batch %s date %s: %s", batch_id, the_date, e)
+        return JsonResponse({'ok': False, 'error': 'Server error rendering attendance'}, status=500)

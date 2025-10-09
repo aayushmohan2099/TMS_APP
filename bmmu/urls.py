@@ -72,7 +72,12 @@ urlpatterns = [
     path('dmmu/dashboard/', views.dmmu_dashboard, name='dmmu_dashboard'),
     path('dmmu/requests/', views.dmmu_training_requests, name='dmmu_training_requests'),
     path('dmmu/request/<int:request_id>/', views.dmmu_request_detail, name='dmmu_request_detail'),
-
+    path('dmmu/batch/<int:batch_id>/detail/', views.dmmu_batch_detail_ajax, name='dmmu_batch_detail_ajax'),
+    path(
+        "dmmu/batch/<int:batch_id>/attendance/<str:date_str>/",
+        views.dmmu_batch_attendance_date,
+        name="dmmu_batch_attendance_date",
+    ),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
