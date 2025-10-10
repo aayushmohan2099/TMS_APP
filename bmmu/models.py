@@ -4,6 +4,7 @@ from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils.text import slugify
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 # -------------------------
 # Core user model
@@ -980,9 +981,6 @@ class MasterTrainerExpertise(models.Model):
         return f"{self.trainer.full_name} -> {self.training_plan.training_name}"
 
 
-# -------------------------
-# TrainingPartnerTargets
-# -------------------------
 class TrainingPartnerTargets(models.Model):
     TARGET_TYPE_CHOICES = [
         ("DISTRICT", "District"),
@@ -992,62 +990,102 @@ class TrainingPartnerTargets(models.Model):
 
     id = models.AutoField(primary_key=True)
     partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='targets')
-    allocated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-                                     related_name='allocated_targets')
+    allocated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='allocated_targets')
+
     target_type = models.CharField(max_length=20, choices=TARGET_TYPE_CHOICES)
-    target_key = models.CharField("Target key (District/Module/Theme)", max_length=255)
-    target_count = models.PositiveIntegerField("Target count", blank=True, null=True)
+
+    # Module (training plan) FK — required for MODULE targets
+    training_plan = models.ForeignKey(TrainingPlan, on_delete=models.CASCADE,
+                                      related_name='partner_targets', null=True, blank=True)
+
+    # District FK — required for DISTRICT targets; also required for MODULE targets per your flow
+    district = models.ForeignKey(District, on_delete=models.CASCADE,
+                                 related_name='tp_district_targets', null=True, blank=True)
+
+    # Theme string (for THEME targets or inferred from training_plan)
+    theme = models.CharField(max_length=200, blank=True, null=True)
+
+    target_count = models.PositiveIntegerField("Target count (batches)", default=0)
     notes = models.TextField("Notes / rationale", blank=True, null=True)
-    evidence_file = models.FileField("Evidence (PDF/JPG)", upload_to='target_evidence/', blank=True, null=True)
+    financial_year = models.CharField("Financial year", max_length=9, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+    allocated_on = models.DateTimeField(default=timezone.now)
 
     class Meta:
         verbose_name = "Training Partner Target"
         verbose_name_plural = "Training Partner Targets"
         indexes = [
             models.Index(fields=['partner', 'target_type']),
+            models.Index(fields=['financial_year']),
         ]
 
+    def clean(self):
+        # validate basic presence
+        if not self.partner:
+            raise ValidationError("partner is required.")
+        if not self.financial_year:
+            raise ValidationError("financial_year is required (e.g. '2023-24').")
+        if self.target_count is None:
+            raise ValidationError("target_count is required.")
+
+        # rules by target_type
+        if self.target_type == "DISTRICT":
+            # require district, disallow training_plan
+            if not self.district:
+                raise ValidationError("district must be set for DISTRICT targets.")
+            # training_plan should not be required — but protect accidental module link
+            # optional: enforce training_plan is None
+        elif self.target_type == "MODULE":
+            # require both training_plan and district per your described flow
+            if not self.training_plan:
+                raise ValidationError("training_plan must be set for MODULE targets.")
+            if not self.district:
+                raise ValidationError("district must be set for MODULE targets.")
+        elif self.target_type == "THEME":
+            # no district required; theme must be present either here or via training_plan.theme
+            if not (self.theme or (self.training_plan and getattr(self.training_plan, 'theme', None))):
+                raise ValidationError("theme must be present for THEME targets (inferred from logged-in SMMU or training_plan).")
+
+        # simple FY format sanity (very permissive)
+        if len(self.financial_year) < 5:
+            raise ValidationError("financial_year looks invalid (expected e.g. '2023-24').")
+
+    def save(self, *args, **kwargs):
+        # populate theme automatically when possible
+        if not self.theme and self.training_plan and getattr(self.training_plan, 'theme', None):
+            self.theme = self.training_plan.theme
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.partner.name} - {self.target_type}:{self.target_key} = {self.target_count or 'N/A'}"
-
-
-# -------------------------
-# TrainingPlanPartner
-# -------------------------
-class TrainingPlanPartner(models.Model):
-    id = models.AutoField(primary_key=True)
-    training_plan = models.ForeignKey(TrainingPlan, on_delete=models.CASCADE, related_name='plan_partners')
-    partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='plan_partners')
-    drp_payments = models.DecimalField("DRP Payments / Estimated Cost", max_digits=12, decimal_places=2, blank=True, null=True)
-    assigned_on = models.DateTimeField(auto_now_add=True)
-    assigned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-
-    class Meta:
-        unique_together = ('training_plan', 'partner')
-        verbose_name = "Training Plan Partner"
-        verbose_name_plural = "Training Plan Partners"
-
-    def __str__(self):
-        return f"{self.training_plan.training_name} <-> {self.partner.name} ({self.drp_payments or 'N/A'})"
+        scope = self.target_type
+        if self.target_type == "MODULE":
+            scope += f" - {getattr(self.training_plan, 'training_name', self.training_plan_id)} / {getattr(self.district, 'district_name_en', self.district_id)}"
+        elif self.target_type == "DISTRICT":
+            scope += f" - {getattr(self.district, 'district_name_en', self.district_id)}"
+        else:
+            scope += f" - {self.theme or 'N/A'}"
+        return f"{self.partner.name} — {scope} = {self.target_count} ({self.financial_year})"
+    
 
 # -------------------------
 # TrainingPartnerBatch
 # -------------------------
 class TrainingPartnerBatch(models.Model):
     STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
+        ('PENDING', 'Pending Approval'),
         ('ONGOING', 'Ongoing'),
+        ('SCHEDULED', 'SCHEDULED'),
         ('COMPLETED', 'Completed'),
-        ('CANCELLED', 'Cancelled'),
+        ('REJECTED', 'Rejected'),
     ]
 
     id = models.AutoField(primary_key=True)
     partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='partnerbatch')
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='partnerbatch')
-    drp_payment_actual = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
-    notes = models.TextField(blank=True, null=True)
     assigned_on = models.DateTimeField(auto_now_add=True)
 
     class Meta:

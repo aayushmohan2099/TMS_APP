@@ -2338,8 +2338,14 @@ def partner_ongoing_trainings(request):
 @login_required
 def attendance_per_batch(request, batch_id):
     """
-    Batch attendance view — ensure beneficiaries come from batch.batch_beneficiaries
-    and participants list is built from batch-specific rows only.
+    Split rendering: day-1 eKYC template vs normal attendance template.
+
+    Behavior:
+      - GET: renders either attendance_per_batch_ekyc.html or attendance_per_batch.html
+      - POST:
+         * AJAX action=record_fingerprint -> update/create BatchEkycVerification (RECORDED)
+         * AJAX action=verify_ekyc     -> update/create BatchEkycVerification (VERIFIED) and return all_verified flag
+         * Otherwise -> attendance CSV/checkboxes handling (unchanged)
     """
     batch = get_object_or_404(
         Batch.objects.select_related('request__training_plan', 'centre').prefetch_related('trainers'),
@@ -2353,11 +2359,11 @@ def attendance_per_batch(request, batch_id):
         india_tz = None
     today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
 
-    # attach training_plan to batch for template
+    # helper: attach training_plan for templates
     training_plan = getattr(batch.request, 'training_plan', None) if getattr(batch, 'request', None) else None
     setattr(batch, 'training_plan', training_plan)
 
-    # ensure centre name available as `.name`
+    # centre display names (safety)
     if getattr(batch, 'centre', None):
         centre_display = getattr(batch.centre, 'venue_name', None) or getattr(batch.centre, 'centre_coord_name', None) or str(batch.centre)
         try:
@@ -2365,15 +2371,13 @@ def attendance_per_batch(request, batch_id):
         except Exception:
             setattr(batch, 'centre_name', centre_display)
 
-    # ---------- prepare participants & ekYC lookups ----------
-    # trainers: as before
+    # Trainers list
     try:
         trainers_qs = list(batch.trainers.all())
     except Exception:
         trainers_qs = []
 
-    # === CRITICAL FIX ===
-    # beneficiaries must be retrieved from BatchBeneficiary join model (per-batch)
+    # Beneficiaries from per-batch relation
     try:
         bb_qs = batch.batch_beneficiaries.select_related('beneficiary').all()
         beneficiaries_qs = [bb.beneficiary for bb in bb_qs]
@@ -2390,7 +2394,7 @@ def attendance_per_batch(request, batch_id):
         display_name = getattr(b, 'member_name', None) or getattr(b, 'name', None) or getattr(b, 'full_name', None) or str(b)
         beneficiaries_display.append({'id': b.id, 'name': display_name, 'obj': b})
 
-    # safe ekYC getter unchanged
+    # safe get existing ekyc
     def safe_get_ekyc(batch_obj, participant_id, role):
         try:
             return BatchEkycVerification.objects.filter(
@@ -2399,10 +2403,10 @@ def attendance_per_batch(request, batch_id):
                 participant_role=role
             ).first()
         except OperationalError as e:
-            logger.warning("OperationalError while querying BatchEkycVerification: %s", e)
+            logger.warning("OperationalError reading BatchEkycVerification: %s", e)
             return None
         except Exception as e:
-            logger.exception("Unexpected error while querying BatchEkycVerification: %s", e)
+            logger.exception("Unexpected error reading BatchEkycVerification: %s", e)
             return None
 
     participants = []
@@ -2421,57 +2425,85 @@ def attendance_per_batch(request, batch_id):
             'ekyc': safe_get_ekyc(batch, b['id'], 'beneficiary')
         })
 
-    # ekYC accessibility check
+    # check table accessibility
     ek_table_accessible = True
     try:
         BatchEkycVerification.objects.exists()
     except OperationalError:
         ek_table_accessible = False
         if not request.session.get('ekyc_table_warning_shown'):
-            messages.warning(request, "E-KYC DB table missing or not accessible — e-KYC upload will be unavailable until migrations are applied.")
+            messages.warning(request, "E-KYC DB table missing or not accessible — e-KYC functionality is unavailable until migrations are applied.")
             request.session['ekyc_table_warning_shown'] = True
 
-    # ---------- POST handling (unchanged semantics) ----------
+    # ---------- POST: handle AJAX actions & attendance ----------
     if request.method == 'POST':
-        # E-KYC upload (same as before)
-        if 'participant_id' in request.POST:
-            logger.info("E-KYC upload POST. files=%s", list(request.FILES.keys()))
-
+        action = request.POST.get('action')
+        if action in ('record_fingerprint', 'verify_ekyc'):
+            # return JSON (AJAX) for these actions
+            logger.debug("attendance_per_batch: AJAX action=%s batch=%s user=%s", action, batch_id, request.user)
             if not ek_table_accessible:
-                messages.error(request, "E-KYC functionality not available: DB table missing. Run migrations.")
-                return redirect('attendance_per_batch', batch_id=batch.id)
+                return JsonResponse({'success': False, 'error': 'E-KYC table not available.'}, status=500)
 
             try:
                 participant_id = int(request.POST.get('participant_id', 0))
             except (TypeError, ValueError):
-                messages.error(request, "Invalid participant id.")
-                return redirect('attendance_per_batch', batch_id=batch.id)
-
+                return JsonResponse({'success': False, 'error': 'Invalid participant id.'}, status=400)
             participant_role = request.POST.get('participant_role', '')
-            uploaded_file = request.FILES.get('ekyc_file')
-
-            if not uploaded_file:
-                messages.error(request, "No file uploaded. Please choose a PDF and try again.")
-                return redirect('attendance_per_batch', batch_id=batch.id)
 
             try:
-                ekyc_obj, created = BatchEkycVerification.objects.get_or_create(
-                    batch=batch,
-                    participant_id=participant_id,
-                    participant_role=participant_role,
-                    defaults={'ekyc_status': 'PENDING'}
-                )
-                ekyc_obj.ekyc_document = uploaded_file
-                ekyc_obj.ekyc_status = 'PENDING'
-                ekyc_obj.save()
-                messages.success(request, "E-KYC uploaded successfully.")
+                with transaction.atomic():
+                    if action == 'record_fingerprint':
+                        ekyc_obj, created = BatchEkycVerification.objects.update_or_create(
+                            batch=batch,
+                            participant_id=participant_id,
+                            participant_role=participant_role,
+                            defaults={'ekyc_status': 'RECORDED'}
+                        )
+                        logger.info("Recorded fingerprint: batch=%s pid=%s role=%s id=%s", batch_id, participant_id, participant_role, ekyc_obj.id)
+                        return JsonResponse({
+                            'success': True,
+                            'status': 'RECORDED',
+                            'status_display': 'Recorded',
+                            'ekyc_id': ekyc_obj.id
+                        })
+                    else:  # verify_ekyc
+                        ekyc_obj, created = BatchEkycVerification.objects.update_or_create(
+                            batch=batch,
+                            participant_id=participant_id,
+                            participant_role=participant_role,
+                            defaults={'ekyc_status': 'VERIFIED'}
+                        )
+                        logger.info("Verified ekyc: batch=%s pid=%s role=%s id=%s", batch_id, participant_id, participant_role, ekyc_obj.id)
+
+                        # compute whether all participants are verified now
+                        all_verified = True
+                        for p in participants:
+                            try:
+                                verified = BatchEkycVerification.objects.filter(
+                                    batch=batch,
+                                    participant_id=p['id'],
+                                    participant_role=p['role'],
+                                    ekyc_status='VERIFIED'
+                                ).exists()
+                            except Exception as e:
+                                logger.exception("Error checking verify for participant %s: %s", p, e)
+                                verified = False
+                            if not verified:
+                                all_verified = False
+                                break
+
+                        return JsonResponse({
+                            'success': True,
+                            'status': 'VERIFIED',
+                            'status_display': 'Verified',
+                            'ekyc_id': ekyc_obj.id,
+                            'all_verified': all_verified
+                        })
             except Exception as e:
-                logger.exception("Error saving E-KYC: %s", e)
-                messages.error(request, f"Failed to save E-KYC: {str(e)}")
+                logger.exception("Error processing action %s: %s", action, e)
+                return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-            return redirect('attendance_per_batch', batch_id=batch.id)
-
-        # Attendance submission (CSV / checkboxes)
+        # attendance submission (CSV / checkboxes) - same as before
         elif 'csv_file' in request.FILES or any(k.startswith('trainer_') or k.startswith('beneficiary_') for k in request.POST):
             attendance_obj, created = BatchAttendance.objects.get_or_create(batch=batch, date=today)
             csv_file = request.FILES.get('csv_file')
@@ -2511,11 +2543,14 @@ def attendance_per_batch(request, batch_id):
             messages.success(request, f"Attendance recorded for {today}.")
             return redirect('attendance_per_batch', batch_id=batch.id)
 
-    # ---------- GET handling: selected date attendance ----------
+        else:
+            messages.error(request, "Unrecognized form submission.")
+            return redirect('attendance_per_batch', batch_id=batch.id)
+
+    # ---------- GET: selected-date attendance ----------
     selected_date = request.GET.get('date')
     attendance_records = None
     attendance_obj = None
-
     if selected_date:
         try:
             selected_date_obj = timezone.datetime.strptime(selected_date, '%Y-%m-%d').date()
@@ -2526,12 +2561,20 @@ def attendance_per_batch(request, batch_id):
             messages.error(request, "Invalid date format.")
             selected_date = None
 
-    # determine ekYC / attendance form visibility
+    # determine ekYC / attendance visibility
     is_first_day = (batch.start_date == today)
+
+    # if any participant not VERIFIED => missing_ekyc True
     missing_ekyc = False
     try:
         for p in participants:
-            if not getattr(p.get('ekyc'), 'ekyc_document', None):
+            st = None
+            try:
+                if p.get('ekyc'):
+                    st = getattr(p['ekyc'], 'ekyc_status', None)
+            except Exception:
+                st = None
+            if st != 'VERIFIED':
                 missing_ekyc = True
                 break
     except Exception:
@@ -2544,6 +2587,14 @@ def attendance_per_batch(request, batch_id):
     attendance_list = None
     if not show_ekyc and not show_attendance and not selected_date:
         attendance_list = BatchAttendance.objects.filter(batch=batch).order_by('-date')
+
+    # choose template: split day-1 eKYC into its own template
+    def render_template_for_batch():
+        if show_ekyc:
+            template_name = 'training_partner/attendance_per_batch_ekyc.html'
+        else:
+            template_name = 'training_partner/attendance_per_batch.html'
+        return template_name
 
     context = {
         'batch': batch,
@@ -2558,8 +2609,9 @@ def attendance_per_batch(request, batch_id):
         'attendance_list': attendance_list,
         'attendance_obj': attendance_obj,
     }
-    return render(request, 'training_partner/attendance_per_batch.html', context)
 
+    chosen_template = render_template_for_batch()
+    return render(request, chosen_template, context)
 
 @login_required
 def partner_upload_attendance(request, batch_id):
@@ -3113,130 +3165,156 @@ def smmu_request_detail(request, batch_id):
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
 
 
+FY_RE = re.compile(r'^\d{4}-\d{2}$')
+
+
 @login_required
-def smmu_training_partner_assignment(request):
+def smmu_create_partner_target(request):
     """
-    SMMU interface to assign TrainingPlan -> TrainingPartner using TrainingPlanPartner model.
-    Updated to attach assignment metadata onto plan objects so template doesn't need custom filters.
+    GET: render the create_training_partner_targets.html form (SMMU only)
+    POST: create/update a TrainingPartnerTargets record based on posted data.
+    This view does NOT rely on TrainingPlanPartner (which you said doesn't exist).
     """
-    # basic role guard (adjust according to your project role logic)
+    # Role guard
     if getattr(request.user, 'role', '').lower() != 'smmu':
         return HttpResponseForbidden("Not authorized")
 
-    # plans where current user is theme expert
-    plans_qs = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
-    partners = list(TrainingPartner.objects.all().order_by('name'))
+    # ---------- GET: render form ----------
+    if request.method == 'GET':
+        partners = TrainingPartner.objects.all().order_by('name')
+        # Modules (training plans) that this SMMU is theme_expert for
+        modules = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
+        districts = District.objects.order_by('district_name_en')
 
-    if request.method == 'POST':
-        partner_id = request.POST.get('partner_id') or request.POST.get('partner')
-        training_plan_ids = request.POST.getlist('training_plan_ids') or request.POST.get('training_plan_ids', '')
-        if isinstance(training_plan_ids, str):
-            training_plan_ids = [x.strip() for x in training_plan_ids.split(',') if x.strip()]
-        force_flag = request.POST.get('force') in ('1', 'true', 'yes', 'on')
+        # There are no assignment records (TrainingPlanPartner) in this project.
+        # We keep plans_with_meta but set assign=None for each plan so template shows "Not assigned".
+        plans_with_meta = [{'obj': p, 'assign': None} for p in modules]
 
-        # validate partner
-        try:
-            partner = TrainingPartner.objects.get(pk=int(partner_id))
-        except Exception:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'error': 'Invalid partner selected.'}, status=400)
-            messages.error(request, 'Invalid partner selected.')
-            return redirect('smmu_training_partner_assignment')
-
-        # collect valid plans
-        valid_plan_objs = []
-        bad_ids = []
-        for pid in training_plan_ids:
-            try:
-                p = TrainingPlan.objects.get(pk=int(pid), theme_expert=request.user)
-                valid_plan_objs.append(p)
-            except Exception:
-                bad_ids.append(pid)
-
-        if bad_ids:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'error': f'Invalid training plan ids: {bad_ids}'}, status=400)
-            messages.error(request, f'Invalid training plan selection: {bad_ids}')
-            return redirect('smmu_training_partner_assignment')
-
-        # detect conflicts
-        conflicts = []
-        for plan in valid_plan_objs:
-            existing = TrainingPlanPartner.objects.filter(training_plan=plan).exclude(partner=partner).first()
-            if existing:
-                conflicts.append({
-                    'training_plan_id': plan.id,
-                    'training_name': plan.training_name,
-                    'conflicting_partner_id': existing.partner.id,
-                    'conflicting_partner_name': existing.partner.name
-                })
-
-        if conflicts and not force_flag:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({
-                    'success': False,
-                    'conflict': True,
-                    'message': f"{len(conflicts)} selected training plan(s) are already assigned to other partner(s).",
-                    'conflicts': conflicts
-                }, status=200)
-            messages.warning(request, f"{len(conflicts)} selected training plan(s) are already assigned to other partner(s). Please confirm to reassign.")
-            qs = f"?partner_id={partner.id}&training_plan_ids={','.join([str(p.id) for p in valid_plan_objs])}"
-            return redirect('smmu_training_partner_assignment' + qs)
-
-        # perform reassignment
-        reassigned = []
-        created = []
-        with transaction.atomic():
-            plan_ids = [p.id for p in valid_plan_objs]
-            if plan_ids:
-                TrainingPlanPartner.objects.filter(training_plan_id__in=plan_ids).exclude(partner=partner).delete()
-            for p in valid_plan_objs:
-                obj, created_flag = TrainingPlanPartner.objects.update_or_create(
-                    training_plan=p,
-                    partner=partner,
-                    defaults={'assigned_by': request.user}
-                )
-                if created_flag:
-                    created.append(p.training_name)
-                else:
-                    reassigned.append(p.training_name)
-
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({
-                'success': True,
-                'message': f"Assigned {len(valid_plan_objs)} training plan(s) to {partner.name}.",
-                'created': created,
-                'reassigned': reassigned
-            })
-        messages.success(request, f"Assigned {len(valid_plan_objs)} training plan(s) to {partner.name}.")
-        return redirect('smmu_training_partner_assignment')
-
-    # GET: assemble plan metadata
-    plans = list(plans_qs)
-    # fetch existing assignments for these plans
-    existing_assignments = TrainingPlanPartner.objects.filter(training_plan__in=plans).select_related('partner', 'training_plan')
-    assign_map = {}
-    for a in existing_assignments:
-        assign_map[a.training_plan_id] = {
-            'partner_id': a.partner.id,
-            'partner_name': a.partner.name,
-            'assigned_on': getattr(a, 'assigned_on', None),
-            # include other fields if needed
+        context = {
+            'partners': partners,
+            'modules': modules,
+            'districts': districts,
+            'plans_with_meta': plans_with_meta,
         }
+        return render(request, 'smmu/create_training_partner_targets.html', context)
 
-    # prepare plans_with_meta — each item is {'obj': plan, 'assign': assign_map.get(plan.id)}
-    plans_with_meta = []
-    for p in plans:
-        plans_with_meta.append({
-            'obj': p,
-            'assign': assign_map.get(p.id)
-        })
+    # ---------- POST: create / update target ----------
+    if request.method != 'POST':
+        return HttpResponseBadRequest("Only GET and POST are supported at this endpoint.")
 
-    context = {
-        'plans_with_meta': plans_with_meta,
-        'partners': partners,
+    # Read POSTed fields
+    partner_id = request.POST.get('partner_id')
+    district_id = request.POST.get('district_id')
+    training_plan_id = request.POST.get('training_plan_id')
+    target_type = (request.POST.get('target_type') or '').upper()
+    target_count = request.POST.get('target_count')
+    notes = request.POST.get('notes', '')
+    financial_year = (request.POST.get('financial_year') or '').strip()
+    post_theme = request.POST.get('theme')
+
+    # Basic presence checks
+    if not partner_id or not target_type or target_count is None or financial_year == '':
+        return JsonResponse({'success': False, 'error': 'Missing required fields: partner_id, target_type, target_count, financial_year are required.'}, status=400)
+
+    # Validate FY format
+    if not FY_RE.match(financial_year):
+        return JsonResponse({'success': False, 'error': "financial_year must be like '2023-24'."}, status=400)
+
+    # Fetch partner
+    try:
+        partner = TrainingPartner.objects.get(pk=int(partner_id))
+    except Exception:
+        return JsonResponse({'success': False, 'error': 'Invalid partner.'}, status=400)
+
+    # Optional: fetch district and training plan if provided
+    district = None
+    training_plan = None
+    if district_id:
+        try:
+            district = District.objects.get(pk=int(district_id))
+        except Exception:
+            return JsonResponse({'success': False, 'error': 'Invalid district.'}, status=400)
+
+    if training_plan_id:
+        try:
+            training_plan = TrainingPlan.objects.get(pk=int(training_plan_id))
+        except Exception:
+            return JsonResponse({'success': False, 'error': 'Invalid training plan/module.'}, status=400)
+
+    # Validate numeric target_count
+    try:
+        tc = int(target_count)
+        if tc < 0:
+            raise ValueError()
+    except Exception:
+        return JsonResponse({'success': False, 'error': 'target_count must be a non-negative integer.'}, status=400)
+
+    # Validate target_type
+    if target_type not in ('MODULE', 'DISTRICT', 'THEME'):
+        return JsonResponse({'success': False, 'error': f'Invalid target_type: {target_type}'}, status=400)
+
+    # Business-rule enforcement
+    if target_type == 'MODULE':
+        if not training_plan:
+            return JsonResponse({'success': False, 'error': 'training_plan_id is required for MODULE targets.'}, status=400)
+        if not district:
+            return JsonResponse({'success': False, 'error': 'district_id is required for MODULE targets.'}, status=400)
+    elif target_type == 'DISTRICT':
+        if not district:
+            return JsonResponse({'success': False, 'error': 'district_id is required for DISTRICT targets.'}, status=400)
+    elif target_type == 'THEME':
+        # infer theme (priority: posted theme -> training_plan.theme -> SMMU's theme via TrainingPlan)
+        inferred_theme = None
+        if post_theme:
+            inferred_theme = post_theme.strip()
+        elif training_plan and getattr(training_plan, 'theme', None):
+            inferred_theme = training_plan.theme
+        else:
+            inferred = TrainingPlan.objects.filter(theme_expert=request.user).values_list('theme', flat=True).distinct().first()
+            if inferred:
+                inferred_theme = inferred
+        if not inferred_theme:
+            return JsonResponse({'success': False, 'error': 'Unable to determine theme for THEME target. Provide "theme" or select a module with a theme, or ensure the logged-in SMMU is a theme_expert.'}, status=400)
+
+    # Build lookup kwargs for update_or_create to avoid duplicates
+    lookup = {
+        'partner': partner,
+        'target_type': target_type,
+        'financial_year': financial_year
     }
-    return render(request, 'smmu/training_partner_assignment.html', context)
+    defaults = {
+        'allocated_by': request.user,
+        'target_count': tc,
+        'notes': notes,
+    }
+
+    if target_type == 'MODULE':
+        lookup.update({'training_plan': training_plan, 'district': district})
+    elif target_type == 'DISTRICT':
+        lookup.update({'district': district})
+    else:  # THEME
+        lookup.update({'theme': inferred_theme})
+
+    # Create or update within a transaction
+    try:
+        with transaction.atomic():
+            obj, created = TrainingPartnerTargets.objects.update_or_create(defaults=defaults, **lookup)
+            # run model validation (model.clean) and save
+            obj.full_clean()
+            obj.save()
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+    
+    partner_name = getattr(obj, "partner", None)
+    partner_name = partner_name.name if partner_name else None
+
+    return JsonResponse({
+        "success": True,
+        "created": bool(created),
+        "target_id": obj.id,
+        "partner_name": partner_name,
+        "message": f"Target created for {partner_name}." if created else "Target updated."
+    })
 
 @login_required
 def dmmu_dashboard(request):

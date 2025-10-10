@@ -33,17 +33,28 @@
               </td>
               <td>{{ tr.beneficiaries.count }}</td>
               <td>
-                {# show status badges as before #}
-                {% if status == "ONGOING" %}
+                {% if status == "BATCHING" %}
+                  <span class="badge bg-success">Batches in Creation</span>
+                {% elif status == "PENDING" %}
+                  <span class="badge bg-success">Pending Approval</span>
+                {% elif status == "ONGOING" %}
                   <span class="badge bg-success">Approved</span>
                 {% elif status == "REJECTED" %}
-                  <span class="badge bg-danger">Rejected</span>
+                  <span class="badge bg-danger">Reverted</span>
                 {% elif status == "COMPLETED" %}
                   <span class="badge bg-secondary">Completed</span>
                 {% endif %}
               </td>
               <td>
-                {% if status == "COMPLETED" %}
+                {% if status == "BATCHING" %}
+                  <a class="btn btn-sm btn-outline-secondary ms-1">No actions necessary</a>
+                {% elif status == "PENDING" %}
+                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">Approval</a>
+                {% elif status == "ONGOING" %}
+                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">View Progress</a>
+                {% elif status == "REJECTED" %}
+                  <a class="btn btn-sm btn-outline-secondary ms-1">No actions necessary</a>
+                {% elif status == "COMPLETED" %}
                   <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">Closure</a>
                 {% endif %}
               </td>

@@ -66,7 +66,8 @@ urlpatterns = [
     path('smmu/requests/', views.smmu_training_requests, name='smmu_training_requests'),
     path('smmu/request/<int:batch_id>/', views.smmu_request_detail, name='smmu_request_detail'),
     path('api/districts/', views.api_districts_for_mandal, name='api_districts_for_mandal'),
-    path('smmu/training-partner-assignment/', views.smmu_training_partner_assignment, name='smmu_training_partner_assignment'),
+    path('smmu/partner-target/create/', views.smmu_create_partner_target, name='smmu_create_partner_target'),
+
 
     # DMMU URLs
     path('dmmu/dashboard/', views.dmmu_dashboard, name='dmmu_dashboard'),

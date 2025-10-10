@@ -1,0 +1,320 @@
+{% load static %}
+{% load custom_tags %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Training Partner Targets — SMMU</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    /* Combined clean gov-like + project theme styles */
+    :root { --accent:#0b2540; --muted:#6c757d; --card:#fff; --bg:#f5f6f7; --gap:16px; font-family: Arial, Helvetica, sans-serif; }
+    body { margin:0; background:var(--bg); color:var(--accent); font-size:15px; -webkit-font-smoothing:antialiased; }
+    header { background:#fff; border-bottom:1px solid #e6e9ec; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+    .container { max-width:1100px; margin:20px auto; padding:0 16px; }
+    .grid { display:grid; grid-template-columns: 1fr 420px; gap:20px; align-items:start; }
+    .card { background:var(--card); border-radius:6px; padding:16px; box-shadow:0 1px 0 rgba(10,20,40,0.03); }
+    h4, h5 { margin:0 0 8px 0; }
+    .muted { color:var(--muted); font-size:0.95rem; }
+    .form-control, .form-select, textarea { width:100%; padding:8px 10px; border:1px solid #dfe4e8; border-radius:4px; box-sizing:border-box; font-size:0.95rem; background:#fff; }
+    .btn { padding:10px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:600; }
+    .btn-primary { background:var(--accent); color:#fff; }
+    .readonly { background:#f8f9fa; padding:8px; border-radius:4px; border:1px solid #e9ecef; }
+    .plan-list { max-height:70vh; overflow:auto; border-radius:6px; background:#fbfdff; padding:6px; }
+    .plan-item { padding:10px; border-bottom:1px solid #f3f6fb; display:flex; justify-content:space-between; gap:12px; align-items:center; cursor:pointer; }
+    .plan-item:hover { background:rgba(11,37,64,0.02); }
+    .plan-title { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:560px; }
+    .small { font-size:0.9rem; color:var(--muted); }
+    .fab { position:fixed; right:22px; bottom:22px; z-index:4000; padding:12px 20px; border-radius:28px; background:linear-gradient(135deg,#007bff,#0056d6); color:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.25); text-decoration:none; font-size:14px; font-weight:500; }
+    .selected { outline: 2px solid rgba(11,37,64,0.08); background: rgba(11,37,64,0.02); border-left:4px solid var(--accent); }
+    .notice { padding:8px; border-radius:6px; background:#fff9e6; border:1px solid #f0e1b8; color:#6b4f00; font-size:0.95rem; }
+    .error { color:#d9534f; }
+    @media (max-width:980px) { .grid { grid-template-columns: 1fr; } .plan-title { max-width:260px; } }
+  </style>
+</head>
+<body>
+<header>
+  <div style="font-weight:700;">Training Partner Targets</div>
+  <div class="muted">SMM_FARMLH (SMMU) — <a href="#" style="color:var(--accent); text-decoration:none;">Logout</a></div>
+</header>
+
+<div class="container">
+  <div class="grid">
+
+    <!-- Left: list of modules (read-only) -->
+    <div class="card">
+      <h4>Available Modules (Training Plans)</h4>
+      <div class="muted small" style="margin-bottom:8px;">Showing modules where you are theme expert — click a module to prefill the form on the right.</div>
+
+      <div style="margin-bottom:10px;">
+        <input id="tp_search" class="form-control" placeholder="Filter modules by name or theme" />
+      </div>
+
+      <div id="planList" class="plan-list" role="list">
+        {% if plans_with_meta %}
+          {% for plan in plans_with_meta %}
+            {% with p=plan.obj assign=plan.assign %}
+            <div class="plan-item" data-plan-id="{{ p.id }}" data-plan-name="{{ p.training_name|escapejs }}" role="listitem" tabindex="0">
+              <div style="min-width:0;">
+                <div class="plan-title" title="{{ p.training_name }}">{{ p.training_name }}</div>
+                <div class="small">{{ p.theme|default_if_none:"" }}</div>
+              </div>
+              <div style="text-align:right; min-width:120px;">
+                <div class="small">{% if assign %}Assigned: {{ assign.partner_name }}{% else %}<span class="muted">Not assigned</span>{% endif %}</div>
+              </div>
+            </div>
+            {% endwith %}
+          {% endfor %}
+        {% else %}
+          <div class="text-center muted" style="padding:24px;">No modules found.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Right: simple target form (single, no assign buttons) -->
+    <aside class="card">
+      <h5>Create / Update Target (SMMU)</h5>
+      <div class="muted small" style="margin-bottom:10px;">Choose partner, select target type and scope, enter batch count and financial year, then Save.</div>
+
+      <form id="targetForm">
+        {% csrf_token %}
+        <div style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Training Partner</label>
+          <select id="target_partner" name="partner_id" class="form-select" required>
+            <option value="">-- select partner --</option>
+            {% for tp in partners %}
+              <option value="{{ tp.id }}">{{ tp.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Target type</label>
+          <select id="target_type" name="target_type" class="form-select" required>
+            <option value="MODULE">Module (module + district)</option>
+            <option value="DISTRICT">District (district only)</option>
+            <option value="THEME">Theme (theme-wise)</option>
+          </select>
+        </div>
+
+        <div id="row_module" style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Module / Training plan</label>
+          <select id="target_module" name="training_plan_id" class="form-select">
+            <option value="">-- select module --</option>
+            {% for m in modules %}
+              <option value="{{ m.id }}">{{ m.training_name }}{% if m.theme %} ({{ m.theme }}){% endif %}</option>
+            {% endfor %}
+          </select>
+          <div class="small muted" style="margin-top:6px;">Tip: click a module on the left to auto-select it here.</div>
+        </div>
+
+        <div id="row_district" style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">District</label>
+          <select id="target_district" name="district_id" class="form-select">
+            <option value="">-- select district --</option>
+            {% for d in districts %}
+              <option value="{{ d.district_id }}">{{ d.district_name_en }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div id="row_theme" style="display:none; margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Theme (inferred)</label>
+          <div id="inferred_theme" class="readonly">(inferred on save)</div>
+          <div class="small muted" style="margin-top:6px;">For THEME targets, theme will be auto-inferred from your SMMU assignment or the selected module.</div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Batch count (target)</label>
+          <input type="number" id="target_count" name="target_count" class="form-control" min="0" required />
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Financial year</label>
+          <select id="financial_year" name="financial_year" class="form-select" required>
+            <option value="">-- select financial year --</option>
+            <option>2021-22</option>
+            <option>2022-23</option>
+            <option selected>2023-24</option>
+            <option>2024-25</option>
+            <option>2025-26</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="form-label" style="font-weight:600;">Notes (finance / rationale)</label>
+          <textarea id="target_notes" name="notes" class="form-control" rows="3" placeholder="Optional notes for finance or rationale"></textarea>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="saveTargetBtn" class="btn btn-primary" style="flex:1;">Save Target</button>
+          <button type="reset" id="resetTargetBtn" class="btn" style="flex:1; border:1px solid #dfe4e8; background:#fff;">Reset</button>
+        </div>
+
+        <div id="targetMessage" style="margin-top:12px;" class="muted small"></div>
+      </form>
+
+      <div style="margin-top:14px;">
+        <h6 style="margin:0 0 6px 0;">Recent activity</h6>
+        <div class="muted small">Saved targets and updates will appear here.</div>
+        <ul id="recentActivity" style="margin-top:8px;"></ul>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<a href="{% url 'smmu_dashboard' %}" class="fab" title="Back to dashboard"><span class="fab-label">Back to Dashboard</span></a>
+
+<script>
+/* Helpers */
+function getCookie(name) {
+  const v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+  return v ? v.pop() : '';
+}
+function qsEscape(s){ return String(s||'').replace(/"/g,'&quot;'); }
+
+/* UI wiring */
+document.addEventListener('DOMContentLoaded', function(){
+  // Search filter for module list
+  const searchInput = document.getElementById('tp_search');
+  searchInput?.addEventListener('input', function(){
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#planList .plan-item').forEach(item => {
+      const title = (item.querySelector('.plan-title')?.textContent || '').toLowerCase();
+      const theme = (item.querySelector('.small')?.textContent || '').toLowerCase();
+      item.style.display = (!q || title.indexOf(q) !== -1 || theme.indexOf(q) !== -1) ? 'flex' : 'none';
+    });
+  });
+
+  // Click module to auto-select in dropdown and highlight
+  document.querySelectorAll('#planList .plan-item').forEach(item => {
+    item.addEventListener('click', function(){
+      const id = this.dataset.planId;
+      const name = this.dataset.planName || this.querySelector('.plan-title')?.textContent || '';
+      // set dropdown
+      const sel = document.getElementById('target_module');
+      if (sel) {
+        const opt = sel.querySelector('option[value="'+id+'"]');
+        if (opt) opt.selected = true;
+      }
+      // visually mark
+      document.querySelectorAll('#planList .plan-item').forEach(x => x.classList.remove('selected'));
+      this.classList.add('selected');
+      // update inferred theme preview if present
+      const themeText = this.querySelector('.small')?.textContent || '';
+      const inferred = document.getElementById('inferred_theme');
+      if (inferred) inferred.textContent = themeText || '(inferred on save)';
+    });
+    // keyboard accessibility
+    item.addEventListener('keypress', function(e){ if(e.key === 'Enter' || e.key === ' ') { this.click(); e.preventDefault(); } });
+  });
+
+  // target type change -> toggle fields
+  const targetType = document.getElementById('target_type');
+  const rowDistrict = document.getElementById('row_district');
+  const rowModule = document.getElementById('row_module');
+  const rowTheme = document.getElementById('row_theme');
+
+  function refreshFields(){
+    const t = targetType.value;
+    if (t === 'DISTRICT') {
+      rowDistrict.style.display = '';
+      rowModule.style.display = 'none';
+      rowTheme.style.display = 'none';
+    } else if (t === 'MODULE') {
+      rowDistrict.style.display = '';
+      rowModule.style.display = '';
+      rowTheme.style.display = 'none';
+    } else if (t === 'THEME') {
+      rowDistrict.style.display = 'none';
+      rowModule.style.display = 'none';
+      rowTheme.style.display = '';
+    }
+  }
+  targetType.addEventListener('change', refreshFields);
+  document.getElementById('target_module')?.addEventListener('change', function(){
+    // update inferred theme preview from selected option text (if it contains parentheses)
+    const opt = this.options[this.selectedIndex];
+    const inferred = document.getElementById('inferred_theme');
+    if (inferred) {
+      const txt = opt ? opt.text : '';
+      // attempt to extract theme between parentheses if provided
+      const m = txt.match(/\(([^)]+)\)\s*$/);
+      inferred.textContent = m ? m[1] : (txt || '(inferred on save)');
+    }
+  });
+  refreshFields();
+
+  // Save target via AJAX
+  const saveBtn = document.getElementById('saveTargetBtn');
+  const targetMsg = document.getElementById('targetMessage');
+  const recentEl = document.getElementById('recentActivity');
+
+  async function postCreateTarget(fd) {
+    const resp = await fetch("{% url 'smmu_create_partner_target' %}", {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken') },
+      body: fd
+    });
+    return resp.json();
+  }
+
+  saveBtn?.addEventListener('click', async function(){
+    targetMsg.innerHTML = '';
+    const partnerId = document.getElementById('target_partner').value;
+    const ttype = document.getElementById('target_type').value;
+    const fy = document.getElementById('financial_year').value;
+    const tc = document.getElementById('target_count').value;
+
+    if (!partnerId) { targetMsg.innerHTML = '<span class="error">Select partner</span>'; return; }
+    if (!ttype) { targetMsg.innerHTML = '<span class="error">Select target type</span>'; return; }
+    if (!fy) { targetMsg.innerHTML = '<span class="error">Select financial year</span>'; return; }
+    if (tc === '' || isNaN(tc) || Number(tc) < 0) { targetMsg.innerHTML = '<span class="error">Enter valid batch count</span>'; return; }
+
+    const moduleId = document.getElementById('target_module').value;
+    const districtId = document.getElementById('target_district').value;
+
+    if (ttype === 'MODULE') {
+      if (!moduleId) { targetMsg.innerHTML = '<span class="error">Select module for MODULE target</span>'; return; }
+      if (!districtId) { targetMsg.innerHTML = '<span class="error">Select district for MODULE target</span>'; return; }
+    }
+    if (ttype === 'DISTRICT' && !districtId) { targetMsg.innerHTML = '<span class="error">Select district for DISTRICT target</span>'; return; }
+
+    const fd = new FormData();
+    fd.append('partner_id', partnerId);
+    fd.append('target_type', ttype);
+    fd.append('target_count', tc);
+    fd.append('financial_year', fy);
+    fd.append('notes', document.getElementById('target_notes').value || '');
+    if (districtId) fd.append('district_id', districtId);
+    if (moduleId) fd.append('training_plan_id', moduleId);
+
+    try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      const res = await postCreateTarget(fd);
+      if (res && res.success) {
+        targetMsg.innerHTML = '<span style="color:#28a745;">' + (res.message || 'Target saved') + '</span>';
+        const li = document.createElement('li'); li.textContent = `Target ${res.created ? 'created' : 'updated'}: ${res.target_id || ''} (${ttype})`; recentEl.prepend(li);
+        // optionally highlight corresponding module in left list
+        if (moduleId) {
+          const el = document.querySelector('#planList .plan-item[data-plan-id="'+moduleId+'"]');
+          if (el) el.classList.add('selected');
+        }
+      } else {
+        targetMsg.innerHTML = '<span class="error">' + (res?.error || 'Failed to save target') + '</span>';
+      }
+    } catch (err) {
+      targetMsg.innerHTML = '<span class="error">Error: ' + (err.message || err) + '</span>';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Target';
+    }
+  });
+
+});
+</script>
+</body>
+</html>

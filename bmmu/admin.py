@@ -208,7 +208,7 @@ class TrainingPartnerTargetsInline(admin.TabularInline):
     model = TrainingPartnerTargets
     extra = 0
     readonly_fields = ("created_at",)
-    fields = ("allocated_by", "target_type", "target_key", "target_count", "notes", "evidence_file", "created_at")
+    fields = ("allocated_by", "target_type", "target_count", "notes", "created_at")
     autocomplete_fields = ("allocated_by",)
 
 
@@ -248,20 +248,74 @@ class TrainingPartnerSubmissionAdmin(ImportExportModelAdmin, admin.ModelAdmin):
 
 
 @admin.register(TrainingPartnerTargets)
-class TrainingPartnerTargetsAdmin(ImportExportModelAdmin, admin.ModelAdmin):
-    resource_class = TrainingPartnerTargetsResource
-    list_display = ("id", "partner", "target_type", "target_key", "target_count", "allocated_by", "created_at")
-    search_fields = ("partner__name", "target_key")
-    autocomplete_fields = ("partner", "allocated_by")
-    readonly_fields = ("created_at",)
+class TrainingPartnerTargetsAdmin(admin.ModelAdmin):
 
+    list_display = (
+        'id',
+        'partner_link',
+        'target_type',
+        'display_scope',
+        'target_count',
+        'financial_year',
+        'allocated_by',
+        'allocated_on',
+        'created_at',
+    )
+    list_filter = (
+        'target_type',
+        'financial_year',
+        'partner',
+        'district',
+    )
+    search_fields = (
+        'partner__name',
+        'training_plan__training_name',
+        'theme',
+        'notes',
+        'financial_year',
+    )
+    readonly_fields = ('created_at', 'allocated_on')
+    list_select_related = ('partner', 'training_plan', 'district', 'allocated_by')
+    ordering = ('-created_at',)
 
-@admin.register(TrainingPlanPartner)
-class TrainingPlanPartnerAdmin(admin.ModelAdmin):
-    list_display = ("id", "training_plan", "partner", "drp_payments", "assigned_on")
-    search_fields = ("training_plan__training_name", "partner__name")
-    autocomplete_fields = ("training_plan", "partner", "assigned_by")
-    readonly_fields = ("assigned_on",)
+    fieldsets = (
+        ('Basic', {
+            'fields': ('partner', 'allocated_by', 'allocated_on', 'created_at', 'financial_year')
+        }),
+        ('Scope', {
+            'fields': ('target_type', 'district', 'training_plan', 'theme', 'target_count')
+        }),
+        ('Notes', {
+            'fields': ('notes',)
+        }),
+    )
+
+    def partner_link(self, obj):
+        if obj.partner_id:
+            url = f"/admin/{obj.partner._meta.app_label}/{obj.partner._meta.model_name}/{obj.partner_id}/change/"
+            return format_html('<a href="{}">{}</a>', url, obj.partner.name)
+        return '-'
+    partner_link.short_description = 'Partner'
+    partner_link.admin_order_field = 'partner__name'
+
+    def display_scope(self, obj):
+        if obj.target_type == 'MODULE':
+            plan = getattr(obj, 'training_plan', None)
+            plan_name = plan.training_name if plan else f"plan:{obj.training_plan_id or 'N/A'}"
+            district = getattr(obj, 'district', None)
+            district_name = district.district_name_en if district else (obj.district_id or 'N/A')
+            return f"Module: {plan_name} / District: {district_name}"
+        elif obj.target_type == 'DISTRICT':
+            district = getattr(obj, 'district', None)
+            return f"District: {district.district_name_en if district else (obj.district_id or 'N/A')}"
+        else:
+            return f"Theme: {obj.theme or 'N/A'}"
+    display_scope.short_description = 'Scope'
+
+    # show more columns in change list if needed via custom methods (already included)
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('partner', 'training_plan', 'district', 'allocated_by')
 
 # -------------------------
 # TrainingRequest and Batch flow
@@ -288,7 +342,7 @@ class BatchAdmin(ImportExportModelAdmin, admin.ModelAdmin):
 
 @admin.register(TrainingPartnerBatch)
 class TrainingPartnerBatchAdmin(admin.ModelAdmin):
-    list_display = ("id", "partner", "batch", "drp_payment_actual", "status", "assigned_on")
+    list_display = ("id", "partner", "batch", "status", "assigned_on")
     search_fields = ("partner__name", "batch__code")
     list_filter = ("status",)
     autocomplete_fields = ("partner", "batch")
