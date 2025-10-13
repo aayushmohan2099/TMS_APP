@@ -338,6 +338,33 @@ class MasterTrainer(models.Model):
         help_text="Optional link to User account for self-service login"
     )
 
+    # Geographical Data
+    state = models.CharField(max_length=150, blank=True, null=True, db_index=True)
+    district = models.ForeignKey(
+        District,
+        on_delete=models.SET_NULL,
+        related_name='trainer_district',
+        null=True, blank=True,
+    )
+    block = models.ForeignKey(
+        Block,
+        on_delete=models.SET_NULL,
+        related_name='trainer_block',
+        null=True, blank=True,
+    )
+    gram_panchayat = models.ForeignKey(
+            Panchayat,
+            on_delete=models.SET_NULL,
+            related_name='trainer_gp',
+            null=True, blank=True,
+        )
+    village = models.ForeignKey(
+        Village,
+        on_delete=models.SET_NULL,
+        related_name='trainer_village',
+        null=True, blank=True,
+    )
+    
     id = models.AutoField(primary_key=True)
     full_name = models.CharField(max_length=200)
     profile_picture = models.ImageField(upload_to='trainer_pfps/', blank=True, null=True)
@@ -370,6 +397,30 @@ class MasterTrainer(models.Model):
         ('SRP', 'SRP'),
     ]
     designation = models.CharField("Designation", max_length=3, choices=DESIGNATION_CHOICES, blank=True, null=True, db_index=True)
+
+    CANONICAL_THEMES = [
+        ('Farm LH', 'Farm LH'),
+        ('FNHW', 'FNHW'),
+        ('M&E', 'M&E'),
+        ('MCLF', 'MCLF'),
+        ('MF&FI', 'MF&FI'),
+        ('Non Farm', 'Non Farm'),
+        ('NONFARM LH', 'NONFARM LH'),
+        ('SISD', 'SISD'),
+        ('SMCB', 'SMCB'),
+        ('TNCB', 'TNCB'),
+        ('Fishery', 'Fishery')
+    ]
+    theme = models.CharField(
+        "Theme",
+        max_length=50,
+        choices=CANONICAL_THEMES,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Canonical theme mapped from CSV 'theme' column"
+    )    
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

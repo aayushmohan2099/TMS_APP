@@ -105,7 +105,7 @@ class MasterTrainerResource(resources.ModelResource):
         skip_unchanged = True
         report_skipped = True
         fields = (
-            "id", "full_name", "date_of_birth", "mobile_no", "aadhaar_no",
+            "state", "district", "block", "gram_panchayat", "village", "id", "full_name", "date_of_birth", "mobile_no", "aadhaar_no",
             "empanel_district", "designation", "bank_account_number", "ifsc", "branch_name", "bank_name",
             "skills", "profile_picture",
         )
