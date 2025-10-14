@@ -1,0 +1,26 @@
+{# templates/bmmu/partials/attendance_list.html #}
+<div class="mb-2">
+  <h6>Attendance — {{ attendance.date|date:"Y-m-d" }}</h6>
+  <div class="small text-muted">Uploaded: {{ attendance.created_at|date:"Y-m-d H:i" }}</div>
+</div>
+
+{% with records=attendance.participant_records.all %}
+  {% if records %}
+    <div style="max-height:420px; overflow:auto;">
+      <table class="table table-sm table-striped mb-0">
+        <thead class="table-light"><tr><th>Name</th><th>Role</th><th>Present</th></tr></thead>
+        <tbody>
+          {% for r in records %}
+            <tr>
+              <td>{{ r.participant_name }}</td>
+              <td>{{ r.participant_role }}</td>
+              <td>{% if r.present %}<span class="text-success">Present</span>{% else %}<span class="text-muted">Absent</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-muted small">No participant records for this attendance.</div>
+  {% endif %}
+{% endwith %}

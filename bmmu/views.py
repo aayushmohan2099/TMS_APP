@@ -501,6 +501,299 @@ def load_app_content(request, app_name):
     html = render_to_string(app_config["template"], context, request=request)
     return HttpResponse(html)
 
+
+@login_required
+def bmmu_trainings_list(request):
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    assigned_block = None
+    try:
+        assignment = BmmuBlockAssignment.objects.filter(user=request.user).select_related('block').first()
+        if assignment:
+            assigned_block = assignment.block
+    except Exception:
+        assigned_block = None
+
+    qs = TrainingRequest.objects.none()
+    try:
+        # Build base qs depending on assigned_block (same logic as before)
+        if assigned_block:
+            try:
+                if request.user:
+                    qs_block = TrainingRequest.objects.filter(level__iexact='BLOCK', created_by=request.user)
+                else:
+                    qs_block = TrainingRequest.objects.none()
+            except Exception:
+                qs_block = TrainingRequest.objects.none()
+
+            try:
+                qs_other = TrainingRequest.objects.filter(block=assigned_block)
+            except Exception:
+                qs_other = TrainingRequest.objects.none()
+        else:
+            qs_block = TrainingRequest.objects.none()
+            qs_other = TrainingRequest.objects.none()
+
+        qs = (qs_block | qs_other).distinct().order_by('-created_at')
+
+        # Read status filter from GET param (case-insensitive)
+        requested_status = (request.GET.get('status') or '').strip().upper()
+
+        # Valid status tokens derived from model choices
+        VALID_STATUSES = [c[0].upper() for c in getattr(TrainingRequest, 'STATUS_CHOICES', [])]
+
+        # If a status filter is provided and valid, apply it.
+        if requested_status:
+            if requested_status in VALID_STATUSES:
+                qs = qs.filter(status__iexact=requested_status)
+            else:
+                # invalid filter -> zero results (do not fallback)
+                qs = TrainingRequest.objects.none()
+        else:
+            # No explicit status filter: keep existing fallback behavior if qs empty
+            if not qs.exists():
+                qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+
+        # Annotate beneficiary counts for faster rendering
+        try:
+            # If qs is a sliced queryset (like [:200]) it's a list, so guard:
+            if hasattr(qs, 'annotate'):
+                qs = qs.annotate(beneficiary_count=Count('beneficiaries'))
+            else:
+                # convert list to queryset-like list of objects and manually add beneficiary_count attribute
+                # but simplest safe fallback: loop and attach count attribute
+                for tr in qs:
+                    try:
+                        tr.beneficiary_count = tr.beneficiaries.count()
+                    except Exception:
+                        tr.beneficiary_count = 0
+        except Exception:
+            logger.exception("bmmu_trainings_list: annotation failed")
+    except Exception as e:
+        logger.exception("bmmu_trainings_list: unexpected error building queryset: %s", e)
+        qs = TrainingRequest.objects.none()
+
+    # Prepare status choices for template (include an 'ALL' option)
+    status_choices = [('','All')] + [(c[0], c[1]) for c in getattr(TrainingRequest, 'STATUS_CHOICES', [])]
+
+    fragment = render_to_string('bmmu_view_trainings.html', {
+        'requests': qs,
+        'status_choices': status_choices,
+        'selected_status': requested_status,
+    }, request=request)
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+    
+
+@login_required
+def bmmu_request_detail(request, request_id):
+    """
+    Render the BMMU training-request fragment INSIDE dashboard.html
+    so the dashboard chrome (navbar/sidebar/footer) remains.
+    """
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    tr = get_object_or_404(
+        TrainingRequest.objects.select_related('training_plan', 'partner', 'created_by'),
+        id=request_id
+    )
+
+    if not tr.created_by or tr.created_by.id != request.user.id:
+        return HttpResponseForbidden("Not authorized to view this request")
+
+    try:
+        batches_qs = Batch.objects.filter(request=tr)\
+            .select_related('centre')\
+            .prefetch_related('batch_beneficiaries__beneficiary', 'trainerparticipations__trainer', 'attendances')\
+            .order_by('start_date', 'id')
+    except Exception as e:
+        logger.exception("bmmu_request_detail: error fetching batches for request %s: %s", tr.id, e)
+        batches_qs = Batch.objects.none()
+
+    batch_details = []
+    for b in batches_qs:
+        try:
+            beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+        except Exception:
+            beneficiaries = []
+        try:
+            attendance_dates = list(b.attendances.order_by('date').values_list('date', flat=True))
+        except Exception:
+            attendance_dates = []
+        centre = getattr(b, 'centre', None)
+        batch_details.append({
+            'batch': b,
+            'centre': centre,
+            'beneficiaries': beneficiaries,
+            'attendance_dates': attendance_dates,
+        })
+
+    try:
+        participants = list(tr.beneficiaries.all())
+    except Exception:
+        participants = []
+
+    # minimal enrichment for display
+    try:
+        india_tz = ZoneInfo("Asia/Kolkata")
+    except Exception:
+        india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
+    
+    for p in participants:
+        dob = getattr(p, 'date_of_birth', None)
+        age = None
+        if dob:
+            try:
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            except Exception:
+                age = None
+        setattr(p, 'age', age)
+        display_name = getattr(p, 'member_name', None) or getattr(p, 'full_name', None) or getattr(p, 'member_code', None) or str(p)
+        setattr(p, 'display_name', display_name)
+        mobile = getattr(p, 'mobile_number', None) or getattr(p, 'mobile_no', None) or getattr(p, 'mobile', None) or ''
+        setattr(p, 'display_mobile', mobile)
+        try:
+            loc_parts = []
+            v = getattr(p, 'village', None)
+            if v:
+                loc_parts.append(str(v))
+            b = getattr(p, 'block', None)
+            if b:
+                loc_parts.append(getattr(b, 'block_name_en', str(b)))
+            setattr(p, 'display_location', ", ".join([x for x in loc_parts if x]))
+        except Exception:
+            setattr(p, 'display_location', '')
+
+    fragment = render_to_string('bmmu_training_detail.html', {
+        'training_request': tr,
+        'batches': batch_details,
+        'participants': participants,
+    }, request=request)
+
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+
+
+@login_required
+def bmmu_batch_view(request, batch_id):
+    """
+    Render batch page INSIDE dashboard.html (so the dashboard chrome persists).
+    """
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        b = Batch.objects.select_related('request__created_by', 'request__training_plan', 'centre')\
+            .prefetch_related(
+                'batch_beneficiaries__beneficiary',
+                'trainerparticipations__trainer',
+                'attendances__participant_records'
+            ).get(id=batch_id)
+    except Batch.DoesNotExist:
+        return HttpResponseForbidden("Batch not found or not accessible")
+    except Exception as e:
+        logger.exception("bmmu_batch_view: DB error fetching batch %s: %s", batch_id, e)
+        return HttpResponseForbidden("Server error")
+
+    try:
+        if not b.request or not b.request.created_by or b.request.created_by.id != request.user.id:
+            return HttpResponseForbidden("Not authorized to view this batch")
+    except Exception:
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+    except Exception:
+        beneficiaries = []
+
+    try:
+        trainers = [tp.trainer for tp in b.trainerparticipations.select_related('trainer').all()]
+    except Exception:
+        trainers = []
+
+    try:
+        attendance_dates = list(b.attendances.order_by('date').values_list('date', flat=True))
+    except Exception:
+        attendance_dates = []
+
+    centre_info = {}
+    try:
+        c = b.centre
+        if c:
+            centre_info = {
+                'venue_name': getattr(c, 'venue_name', None),
+                'venue_address': getattr(c, 'venue_address', None),
+                'serial_number': getattr(c, 'serial_number', None),
+                'coord_name': getattr(c, 'centre_coord_name', None),
+                'coord_mobile': getattr(c, 'centre_coord_mob_number', None),
+            }
+    except Exception:
+        centre_info = {}
+
+    fragment = render_to_string('bmmu_batch_detail.html', {
+        'batch': b,
+        'beneficiaries': beneficiaries,
+        'trainers': trainers,
+        'attendance_dates': attendance_dates,
+        'centre_info': centre_info,
+    }, request=request)
+
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+
+
+@login_required
+@require_http_methods(["GET"])
+def bmmu_batch_attendance_date(request, batch_id, date_str):
+    """
+    AJAX attendance fetch (unchanged) - returns JSON with html fragment.
+    """
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    raw = unquote(date_str or '').strip()
+    the_date = None
+    parse_attempts = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"]
+    for fmt in parse_attempts:
+        try:
+            the_date = datetime.datetime.strptime(raw, fmt).date()
+            break
+        except Exception:
+            continue
+    if the_date is None:
+        try:
+            the_date = datetime.date.fromisoformat(raw.split('T')[0])
+        except Exception:
+            try:
+                from dateutil import parser as _du_parser
+                the_date = _du_parser.parse(raw).date()
+            except Exception:
+                the_date = None
+
+    if the_date is None:
+        return JsonResponse({'ok': False, 'error': f'Invalid date: {date_str}'}, status=400)
+
+    try:
+        att = BatchAttendance.objects.select_related('batch').prefetch_related('participant_records').get(batch_id=batch_id, date=the_date)
+    except BatchAttendance.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Attendance not found'}, status=404)
+    except Exception as e:
+        logger.exception("bmmu_batch_attendance_date: DB error for batch %s date %s: %s", batch_id, the_date, e)
+        return JsonResponse({'ok': False, 'error': 'Server error'}, status=500)
+
+    try:
+        if not att.batch or not getattr(att.batch, 'request', None) or not getattr(att.batch.request, 'created_by', None) or att.batch.request.created_by.id != request.user.id:
+            return HttpResponseForbidden("Not authorized to view this attendance")
+    except Exception:
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        html = render_to_string('bmmu/partials/attendance_list.html', {'attendance': att}, request=request)
+        return JsonResponse({'ok': True, 'html': html})
+    except Exception as e:
+        logger.exception("bmmu_batch_attendance_date: render error: %s", e)
+        return JsonResponse({'ok': False, 'error': 'Render error'}, status=500)
+
 def _apply_search_filter_sort(queryset, params):
     """
     Apply search, filters and sorting via GET params.

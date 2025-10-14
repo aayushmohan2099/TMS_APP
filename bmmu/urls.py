@@ -18,7 +18,11 @@ urlpatterns = [
 
     # BMMU endpoint for import/export/blueprint - redirects to wrapper for GET
     path("bmmu/dashboard/", views.bmmu_dashboard, name="bmmu_dashboard"),
-
+    path('bmmu/trainings-list/', views.bmmu_trainings_list, name='bmmu_trainings_list'),
+    path('bmmu/request/<int:request_id>/', views.bmmu_request_detail, name='bmmu_request_detail'),
+    path('bmmu/batch/<int:batch_id>/view/', views.bmmu_batch_view, name='bmmu_batch_view'),
+    path('bmmu/batch/<int:batch_id>/attendance/<str:date_str>/', views.bmmu_batch_attendance_date, name='bmmu_batch_attendance_date'),
+    
     # Add single beneficiary (fragment + POST)
     path("bmmu/add/", views.bmmu_add_beneficiary, name="bmmu_add_beneficiary"),
 

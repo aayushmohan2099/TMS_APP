@@ -1,0 +1,118 @@
+{# fragment: bmmu_view_trainings.html #}
+<h4>All Trainings List</h4>
+
+<div class="mb-3 d-flex align-items-center gap-3">
+  <form id="bmmu-status-form" method="get" class="d-flex align-items-center gap-2">
+    <label class="small mb-0">Filter by status:</label>
+    <select name="status" id="bmmu_status" class="form-select form-select-sm" style="width:220px;">
+      {% for val, label in status_choices %}
+        {% if val %}
+          <option value="{{ val }}" {% if selected_status and selected_status == val|upper %}selected{% endif %}>{{ label }}</option>
+        {% else %}
+          <option value="" {% if not selected_status %}selected{% endif %}>{{ label }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <noscript><button class="btn btn-sm btn-outline-primary">Apply</button></noscript>
+  </form>
+
+  <div class="ms-auto small text-muted">
+    {% if selected_status %}
+      Showing: <strong>{{ selected_status }}</strong>
+    {% else %}
+      Showing: <strong>All</strong>
+    {% endif %}
+  </div>
+</div>
+
+{% if requests and requests|length %}
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered">
+      <thead class="table-light">
+        <tr>
+          <th>Request ID</th>
+          <th>Training</th>
+          <th>Theme</th>
+          <th>Level</th>
+          <th>Requested by</th>
+          <th>Beneficiaries</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tr in requests %}
+          {% with status=tr.status|default:""|upper %}
+            <tr>
+              <td>{{ tr.id }}</td>
+              <td>
+                {% if tr.training_plan %}
+                  {{ tr.training_plan.training_name }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>
+                {% if tr.training_plan %}
+                  {{ tr.training_plan.theme }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>{{ tr.level|default:"-" }}</td>
+              <td>
+                {% if tr.created_by %}
+                  {{ tr.created_by.get_full_name|default:tr.created_by.username }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>
+                {% if tr.beneficiary_count is not None %}
+                  {{ tr.beneficiary_count }}
+                {% else %}
+                  {{ tr.beneficiaries.count }}
+                {% endif %}
+              </td>
+              <td>
+                {% if status == "BATCHING" %}
+                  <span class="badge bg-success">Batches in Creation</span>
+                {% elif status == "PENDING" %}
+                  <span class="badge bg-warning text-dark">Pending Approval</span>
+                {% elif status == "ONGOING" %}
+                  <span class="badge bg-info text-dark">Ongoing</span>
+                {% elif status == "REJECTED" %}
+                  <span class="badge bg-danger">Reverted</span>
+                {% elif status == "COMPLETED" %}
+                  <span class="badge bg-secondary">Completed</span>
+                {% else %}
+                  <span class="badge bg-light text-dark">{{ tr.status }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if status == "BATCHING" %}
+                  <span class="text-muted small">No actions necessary</span>
+                {% else %}
+                  <a class="btn btn-sm btn-outline-primary ms-1" href="{% url 'bmmu_request_detail' tr.id %}">View</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endwith %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="text-muted">No training requests found.</div>
+{% endif %}
+
+<script>
+  // auto-submit when user changes status filter
+  (function(){
+    const sel = document.getElementById('bmmu_status');
+    const form = document.getElementById('bmmu-status-form');
+    if(sel && form){
+      sel.addEventListener('change', function(){ form.submit(); });
+    }
+  })();
+</script>
