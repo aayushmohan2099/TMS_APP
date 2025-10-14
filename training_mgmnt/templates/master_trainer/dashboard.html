@@ -110,7 +110,7 @@
           <h5>Your assigned batches</h5>
           <p class="text-muted small">Recent batches where you are listed as trainer</p>
           <ul class="list-group">
-            {% for batch in assigned_batches|slice:":6" %}
+            {% for batch in batches|slice:":6" %}
               <li class="list-group-item d-flex justify-content-between align-items-start">
                 <div>
                   <div class="fw-bold">{{ batch.training_plan.training_name }}</div>
