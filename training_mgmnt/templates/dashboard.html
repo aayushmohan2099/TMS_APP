@@ -28,8 +28,28 @@
         .dashboard { flex: 1; display: flex; height: calc(100vh - 60px); overflow: hidden; }
         .sidebar { width: 220px; background: rgba(255, 255, 255, 0.95); border-right: 2px solid #ddd; padding: 15px; }
         .sidebar h5 { margin-bottom: 20px; font-weight: bold; color: #333; }
-        .sidebar a { display: block; padding: 10px; margin-bottom: 8px; background: #f8f9fa; border-radius: 6px; text-decoration: none; color: #000; transition: 0.3s; }
-        .sidebar a:hover { background: #ff6600; color: #fff; }
+
+        /* NEW: small styles for collapsible group (surgical addition) */
+        .group-header {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            padding:8px 10px;
+            background:#f8f9fa;
+            border-radius:6px;
+            cursor:pointer;
+            margin-bottom:8px;
+            user-select:none;
+        }
+        .group-header:hover { background:#ff6600; color:#fff; }
+        .caret { transition: transform .18s ease; font-size:12px; }
+        .caret.open { transform: rotate(90deg); }
+
+        .submenu { display:none; margin-top:6px; margin-left:6px; }
+        .submenu.show { display:block; }
+        .submenu a { display:block; padding:8px; margin-bottom:6px; background:#f8f9fa; border-radius:6px; text-decoration:none; color:#000; }
+        .submenu a:hover { background:#ff6600; color:#fff; }
+
         .content { flex: 1; padding: 20px; background: rgba(255, 255, 255, 0.95); overflow-y: auto; position: relative; }
         footer { background: #222; color: #fff; text-align: center; padding: 8px; }
 
@@ -69,13 +89,44 @@
 
     <!-- Dashboard -->
     <div class="dashboard">
-        <!-- Sidebar -->
+        <!-- Sidebar (SURGICAL CHANGE: dropdown group added, original create link preserved) -->
         <div class="sidebar">
             <h5>Applications</h5>
-            <a href="#" onclick="loadContent('tms')">Create Training Request</a>
-            <a href="#" onclick="loadContent('app2')">APP 2</a>
-            <a href="#" onclick="loadContent('app3')">APP 3</a>
-            <!-- BMMU is handled by header default content -->
+
+            <!-- Collapsible group header -->
+            <div class="group-header" id="tms-header" role="button" tabindex="0" aria-expanded="false" aria-controls="tms-submenu">
+                <span>Training Management System</span>
+                <span class="caret" id="tms-caret"><span style='font-size:20px;'>&#8594;</span></span>
+            </div>
+
+            <!-- Submenu: NOTE - first item preserves original behaviour calling loadContent('tms') -->
+            <div class="submenu" id="tms-submenu" aria-hidden="true">
+                <a href="#" onclick="loadContent('tms'); return false;">1. Create Training Request</a>
+                <a href="#" onclick="loadContent('tms/list'); return false;">2. All trainings list</a>
+                <a href="#" onclick="loadContent('tms/beneficiaries'); return false;">3. Beneficiaries Trained</a>
+            </div>
+            
+            <!-- other links unchanged -->
+            <div class="group-header" role="button" tabindex="0">
+                <span>Beneficiary Management</span>
+            </div>
+
+            <div class="group-header" role="button" tabindex="0">
+                <span>Payments Portal</span>
+            </div>
+
+            <div class="group-header" id="tms-header" role="button" tabindex="0" aria-expanded="false" aria-controls="tms-submenu">
+                <span>Reports</span>
+                <span class="caret" id="tms-caret"><span style='font-size:20px;'>&#8594;</span></span>
+            </div>
+
+            <!-- Submenu: NOTE - first item preserves original behaviour calling loadContent('tms') -->
+            <div class="submenu" id="tms-submenu" aria-hidden="true">
+                <a href="#">1. Date wise Batches</a>
+                <a href="#">2. Complete Training Reports</a>
+                <a href="#">3. Batch Closure Reports</a>
+            </div>
+
         </div>
 
         <!-- Content Area -->
@@ -96,6 +147,51 @@
 
     <!-- Bootstrap JS bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+    /**
+    * Minimal toggle script for the TMS dropdown.
+    * Kept tiny and completely separate from existing functions.
+    */
+    (function(){
+      const header = document.getElementById('tms-header');
+      const submenu = document.getElementById('tms-submenu');
+      const caret = document.getElementById('tms-caret');
+
+      function setOpen(open) {
+        if (open) {
+          submenu.classList.add('show');
+          caret.classList.add('open');
+          header.setAttribute('aria-expanded','true');
+          submenu.setAttribute('aria-hidden','false');
+        } else {
+          submenu.classList.remove('show');
+          caret.classList.remove('open');
+          header.setAttribute('aria-expanded','false');
+          submenu.setAttribute('aria-hidden','true');
+        }
+      }
+
+      header.addEventListener('click', function(e){
+        setOpen(!submenu.classList.contains('show'));
+      });
+
+      header.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setOpen(!submenu.classList.contains('show'));
+        } else if (e.key === 'ArrowRight') {
+          setOpen(true);
+        } else if (e.key === 'ArrowLeft') {
+          setOpen(false);
+        }
+      });
+
+      // Expose for manual control if needed (optional)
+      window.openTmsMenu = () => setOpen(true);
+      window.closeTmsMenu = () => setOpen(false);
+    })();
+    </script>
 
     <script>
     /**

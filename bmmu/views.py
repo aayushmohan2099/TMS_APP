@@ -38,6 +38,8 @@ from django.db.utils import OperationalError
 from django.core.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from zoneinfo import ZoneInfo
+from urllib.parse import unquote, unquote_plus
+
 
 logger = logging.getLogger(__name__)
 
@@ -1147,107 +1149,6 @@ def training_program_management(request):
 
     # Non-AJAX: redirect to wrapper dashboard so UI/styling are intact
     return redirect("dashboard")
-
-
-@login_required
-@csrf_exempt
-def tms_create_batch(request):
-    """
-    Endpoint to create a Batch from the client-side TMS modal.
-    Accepts application/json POST (body). Minimal validation and safe creation.
-    Returns JSON {ok: True/False, batch_id:, message:}
-    """
-    if request.method != 'POST':
-        return HttpResponseBadRequest('Invalid method')
-
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except Exception:
-        return HttpResponseBadRequest('Invalid JSON')
-
-    # required fields (moduleId is required so we can map to TrainingPlan)
-    required = ['theme', 'moduleId', 'trainers', 'beneficiaries', 'partner']
-    # allow partner empty string when not chosen
-    if not all(k in payload for k in required):
-        return HttpResponseBadRequest('Missing fields')
-
-    module_id = payload.get('moduleId')
-    try:
-        # moduleId maps to TrainingPlan.id (we used that mapping earlier)
-        tp = TrainingPlan.objects.get(id=module_id)
-    except Exception:
-        return JsonResponse({'ok': False, 'message': 'Invalid module id'}, status=400)
-
-    # Parse optional dates if provided (ISO string). Keep robust: don't error on parse issues.
-    start_date = None
-    end_date = None
-    try:
-        from datetime import datetime
-        s = payload.get('start') or None
-        e = payload.get('end') or None
-        if s:
-            try:
-                start_date = datetime.fromisoformat(s).date()
-            except Exception:
-                start_date = None
-        if e:
-            try:
-                end_date = datetime.fromisoformat(e).date()
-            except Exception:
-                end_date = None
-    except Exception:
-        start_date = None
-        end_date = None
-
-    # partner may be empty string or id
-    partner_val = payload.get('partner') or None
-    partner_obj = None
-    if partner_val:
-        try:
-            partner_obj = TrainingPartner.objects.filter(id=partner_val).first()
-        except Exception:
-            partner_obj = None
-
-    # safe create within transaction
-    try:
-        with transaction.atomic():
-            batch = Batch.objects.create(
-                training_plan=tp,
-                start_date=start_date,
-                end_date=end_date,
-                partner=partner_obj,
-                created_by=request.user if hasattr(request.user, 'id') else None,
-                status='PENDING' if 'PENDING' in [c[0] for c in Batch._meta.get_field('status').choices] else getattr(Batch, 'status', 'DRAFT')
-            )
-            # attach trainers if provided (list of ids)
-            trainers = payload.get('trainers') or []
-            if trainers:
-                try:
-                    trainers_qs = MasterTrainer.objects.filter(id__in=trainers)
-                    batch.trainers.set(trainers_qs)
-                except Exception:
-                    pass
-
-            # attach beneficiaries ids
-            beneficiaries = payload.get('beneficiaries') or []
-            if beneficiaries:
-                try:
-                    ben_qs = Beneficiary.objects.filter(id__in=beneficiaries)
-                    batch.beneficiaries.set(ben_qs)
-                except Exception:
-                    pass
-
-            # assign code if needed
-            if not getattr(batch, 'code', None):
-                import uuid
-                batch.code = 'B-' + str(uuid.uuid4())[:8]
-                batch.save()
-
-    except Exception as e:
-        logger.exception("tms_create_batch: failed to create batch: %s", e)
-        return JsonResponse({'ok': False, 'message': 'Server error creating batch'}, status=500)
-
-    return JsonResponse({'ok': True, 'batch_id': batch.code or batch.id, 'message': 'Batch created successfully'})
 
 @login_required
 def master_trainer_dashboard(request):

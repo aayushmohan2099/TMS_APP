@@ -1,12 +1,12 @@
 {% load static %}
 <script>
-  const SERVER_THEMES = {{ themes_json|default:"[]"|safe }};
-  const SERVER_MODULES_MAP = {{ modules_map_json|default:"{}"|safe }};
-  const SERVER_PARTNERS = {{ partners_json|default:"[]"|safe }};
-  const SERVER_BENEFICIARIES = {{ beneficiaries_json|default:"[]"|safe }};
-  const SERVER_TRAINERS = {{ trainers_json|default:"[]"|safe }};
-  const SERVER_TRAINERS_MAP = {{ trainers_map_json|default:"{}"|safe }};
-  const SERVER_BATCHES = {{ batches_json|default:"[]"|safe }};
+  const SERVER_THEMES = {{ themes_json|default:"[]"|safe }} ;
+  const SERVER_MODULES_MAP = {{ modules_map_json|default:"{}"|safe }} ;
+  const SERVER_PARTNERS = {{ partners_json|default:"[]"|safe }} ;
+  const SERVER_BENEFICIARIES = {{ beneficiaries_json|default:"[]"|safe }} ;
+  const SERVER_TRAINERS = {{ trainers_json|default:"[]"|safe }} ;
+  const SERVER_TRAINERS_MAP = {{ trainers_map_json|default:"{}"|safe }} ;
+  const SERVER_BATCHES = {{ batches_json|default:"[]"|safe }} ;
 </script>
 
 <div class="tms-panel p-3">
@@ -46,10 +46,9 @@
           <option value="name">Name</option>
           <option value="village">Village</option>
         </select>
-        <div class="form-check ms-auto">
-          <input type="checkbox" id="tms_select_all" class="form-check-input">
-          <label for="tms_select_all" class="form-check-label small">Select All</label>
-        </div>
+
+        <!-- SURGICAL CHANGE: removed duplicate "Select All" control here.
+             The header checkbox in the table will be the single select-all control. -->
       </div>
     </div>
 
@@ -90,7 +89,7 @@
   const controls = document.getElementById('tms_part_controls');
   const searchInput = document.getElementById('tms_search');
   const sortSel = document.getElementById('tms_sort');
-  const selectAllCb = document.getElementById('tms_select_all');
+  // NOTE: selectAllCb removed (duplicate control) - header checkbox will be used instead
   const nominateBtn = document.getElementById('tms_nominate');
   const feedback = document.getElementById('tms_feedback');
   const participantsLabel = document.getElementById('tms_participants_label');
@@ -118,11 +117,28 @@
     });
   }
 
+  // Helper: update header checkbox state based on visible rows
+  function updateHeadCheckbox() {
+    const headAll = document.getElementById('head_select_all');
+    if(!headAll) return;
+    const visibleCheckboxes = Array.from(document.querySelectorAll('#tms_table_body .tms-row'))
+      .filter(cb => cb.closest('tr').style.display !== 'none');
+    if(visibleCheckboxes.length === 0) {
+      headAll.checked = false;
+      headAll.indeterminate = false;
+      return;
+    }
+    const allChecked = visibleCheckboxes.every(cb => cb.checked);
+    const someChecked = visibleCheckboxes.some(cb => cb.checked);
+    headAll.checked = allChecked;
+    headAll.indeterminate = (!allChecked && someChecked);
+  }
+
   function showParticipantsTable(type){
     clear(tableHead); clear(tableBody);
     controls.style.display = '';
     wrapper.style.display = 'block';
-    selectAllCb.checked = false;
+    // SEARCH reset is fine for a fresh view
     searchInput.value = '';
 
     if(type === 'BENEFICIARY'){
@@ -130,6 +146,7 @@
       // head
       const headRow = document.createElement('tr');
       headRow.innerHTML = `
+        <!-- header checkbox is the single 'select all' control -->
         <th style="width:40px;"><input type="checkbox" id="head_select_all"></th>
         <th>Member Name</th>
         <th>SHG</th>
@@ -181,19 +198,40 @@
       // nothing
       wrapper.style.display = 'none';
       controls.style.display = 'none';
+      return;
     }
 
-    // wire head select all
+    // ---- WIRE header select all to only toggle VISIBLE rows (surgical change) ----
     const headAll = document.getElementById('head_select_all');
     if(headAll){
-      headAll.addEventListener('change', function(){ 
+      // reset state
+      headAll.checked = false;
+      headAll.indeterminate = false;
+
+      headAll.addEventListener('change', function(){
         const ch = !!this.checked;
-        document.querySelectorAll('#tms_table_body .tms-row').forEach(cb => cb.checked = ch);
-        selectAllCb.checked = ch;
+        // Only change checkboxes for visible rows
+        document.querySelectorAll('#tms_table_body .tms-row').forEach(cb => {
+          const tr = cb.closest('tr');
+          if(!tr) return;
+          if(tr.style.display === 'none') return; // do not toggle hidden rows
+          cb.checked = ch;
+        });
+        // after toggling, ensure head checkbox is correct (no indeterminate)
+        updateHeadCheckbox();
       });
     }
-    // wire global selectAll checkbox to behave same
-    selectAllCb.onchange = function(){ const ch = !!this.checked; document.querySelectorAll('#tms_table_body .tms-row').forEach(cb => cb.checked = ch); const headAll2 = document.getElementById('head_select_all'); if(headAll2) headAll2.checked = ch; };
+
+    // Attach per-row change listeners to update header checkbox and preserve user selections
+    Array.from(document.querySelectorAll('#tms_table_body .tms-row')).forEach(cb => {
+      cb.addEventListener('change', function(){
+        // when a row toggles, just update head checkbox state (reflect visible rows)
+        updateHeadCheckbox();
+      });
+    });
+
+    // initial update of head checkbox (nothing selected)
+    updateHeadCheckbox();
   }
 
   function escapeHtml(s){
@@ -207,9 +245,14 @@
       const hay = r.textContent.toLowerCase();
       r.style.display = (!text || hay.indexOf(text) !== -1) ? '' : 'none';
     });
+    // After filtering, update header checkbox to reflect visible rows only.
+    updateHeadCheckbox();
   }
 
   function collectCheckedIds(){
+    // collect ALL checked rows (visible or hidden). This keeps behavior intuitive:
+    // if user explicitly checked some hidden rows via some other UI, they'd be included.
+    // In the typical flow users only check visible rows, so this will return exactly those they selected.
     return Array.from(document.querySelectorAll('#tms_table_body .tms-row:checked')).map(cb => parseInt(cb.dataset.id));
   }
 
@@ -223,6 +266,7 @@
     showParticipantsTable(t);
   });
 
+  // search input - do not reset selections, only hide/show rows
   searchInput.addEventListener('input', function(){ filterTable(this.value); });
 
   nominateBtn.addEventListener('click', function(){

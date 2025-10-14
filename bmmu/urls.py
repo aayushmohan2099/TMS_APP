@@ -29,7 +29,6 @@ urlpatterns = [
     path('beneficiary/<int:pk>/update/', views.bmmu_beneficiary_update, name='bmmu_beneficiary_update'),
 
     # Training Program Management Portal (Batch Creator)
-    path('tms/create_batch/', views.tms_create_batch, name='tms_create_batch'),
     path('tms/create_request/', tms_custom.create_training_request, name='create_training_request'),
 
     # Training Program Management view (needed by redirects and direct route)
