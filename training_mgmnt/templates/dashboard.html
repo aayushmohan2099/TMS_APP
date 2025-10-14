@@ -102,7 +102,19 @@
             <!-- Submenu: NOTE - first item preserves original behaviour calling loadContent('tms') -->
             <div class="submenu" id="tms-submenu" aria-hidden="true">
                 <a href="#" onclick="loadContent('tms'); return false;">1. Create Training Request</a>
-                <a href="{% url 'bmmu_trainings_list' %}">2. All trainings list</a>
+                {% if user.is_authenticated %}
+                  {% with role_lower=user.role|default:""|lower %}
+                    {% if role_lower == "smmu" %}
+                      <a class="navbar-brand" href="{% url 'smmu_dashboard' %}">{{ user.role|upper }} Dashboard</a>
+                    {% elif role_lower == "bmmu" %}
+                      <a href="{% url 'bmmu_trainings_list' %}">2. All trainings list</a>
+                    {% else %}
+                      <a href="{% url 'dmmu_training_requests' %}">2. All trainings list</a>
+                    {% endif %}
+                  {% endwith %}
+                {% else %}
+                  <span class="navbar-brand">Dashboard</span>
+                {% endif %}
                 <a href="#" onclick="loadContent('tms/beneficiaries'); return false;">3. Beneficiaries Trained</a>
             </div>
             
