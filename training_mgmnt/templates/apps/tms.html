@@ -23,11 +23,39 @@
     </div>
     <div class="col-md-4">
       <label class="form-label small">Participant Type</label>
-      <select id="tms_type" class="form-select form-select-sm">
-        <option value="">Select type</option>
-        <option value="BENEFICIARY">SHG Members</option>
-        <option value="TRAINER">BRPs</option>
-      </select>
+      {% if user.is_authenticated %}
+        {% with role_lower=user.role|default:""|lower %}
+          {% if role_lower == "smmu" %}
+            <select id="tms_type" class="form-select form-select-sm">
+              <option value="">Select type</option>
+              <option value="TRAINER">BRPs | Block Resource Persons</option>
+              <option value="TRAINER">DRPs | District Resource Persons</option>
+              <option value="TRAINER">SRPs | State Resource Persons</option>
+            </select>            
+          {% elif role_lower == "bmmu" %}
+            <select id="tms_type" class="form-select form-select-sm">
+              <option value="">Select type</option>
+              <option value="BENEFICIARY">Beneficiaries | SHG Members</option>
+              <option value="TRAINER">BRPs | Block Resource Persons</option>
+            </select>
+          {% else %}
+            <select id="tms_type" class="form-select form-select-sm">
+              <option value="">Select type</option>
+              <option value="BENEFICIARY">Beneficiaries | SHG Members</option>
+              <option value="TRAINER">BRPs | Block Resource Persons</option>
+              <option value="TRAINER">DRPs | District Resource Persons</option>
+            </select>            
+          {% endif %}
+        {% endwith %}
+      {% else %}
+            <select id="tms_type" class="form-select form-select-sm">
+              <option value="">Select type</option>
+              <option value="BENEFICIARY">Beneficiaries | SHG Members</option>
+              <option value="TRAINER">BRPs | Block Resource Persons</option>
+              <option value="TRAINER">DRPs | District Resource Persons</option>
+              <option value="TRAINER">SRPs | State Resource Persons</option>
+            </select>                    
+      {% endif %}
     </div>
   </div>
 

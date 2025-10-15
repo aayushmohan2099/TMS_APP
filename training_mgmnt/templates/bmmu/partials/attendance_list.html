@@ -14,7 +14,7 @@
             <tr>
               <td>{{ r.participant_name }}</td>
               <td>{{ r.participant_role }}</td>
-              <td>{% if r.present %}<span class="text-success">Present</span>{% else %}<span class="text-muted">Absent</span>{% endif %}</td>
+              <td>{% if r.present %}<span class="text-success">Present</span>{% else %}<span class="text-danger">Absent</span>{% endif %}</td>
             </tr>
           {% endfor %}
         </tbody>

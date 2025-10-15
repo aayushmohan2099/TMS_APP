@@ -1,6 +1,6 @@
 {# templates/bmmu_training_detail.html (fragment) #}
 <div class="p-2">
-  <h4 class="mb-3">Training Request — Details (Read-only)</h4>
+  <h4 class="mb-3">Training Request — Details</h4>
 
   <div class="card mb-3 shadow-sm">
     <div class="card-body">
@@ -11,9 +11,10 @@
             Request ID: <strong>{{ training_request.id }}</strong>
             &nbsp;|&nbsp; Theme: <strong>{{ training_request.training_plan.theme|default:"-" }}</strong>
             &nbsp;|&nbsp; Level: <strong>{{ training_request.level|default:"-" }}</strong>
-            &nbsp;|&nbsp; Type: <strong>{{ training_request.training_type|default:"-" }}</strong>
+            &nbsp;|&nbsp; Training Type: <strong>{{ training_request.training_plan.type_of_training|default:"-" }}</strong>
+            &nbsp;|&nbsp; Participant Type: <strong>{{ training_request.training_type|default:"-" }}</strong>
           </p>
-          <p class="small text-muted mb-0">Requested: {{ training_request.created_at|date:"Y-m-d H:i" }}</p>
+          <p class="small text-muted mb-0">Date Requested: {{ training_request.created_at|date:"Y-m-d H:i" }}</p>
           {% if training_request.partner %}
             <p class="small mb-0">Partner: {{ training_request.partner }}</p>
           {% endif %}
@@ -50,7 +51,7 @@
             {% for info in batches %}
               {% with b=info.batch %}
                 <tr>
-                  <td class="align-middle">{{ b.code|default:"Batch-"|add:b.id }}</td>
+                  <td class="align-middle">{{ b.code }}</td>
                   <td class="align-middle">
                     {% if info.centre %}{{ info.centre.venue_name|default:info.centre }}{% else %}&mdash;{% endif %}
                   </td>
