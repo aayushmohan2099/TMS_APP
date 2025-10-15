@@ -1,7 +1,31 @@
 {# fragment: dmmu/training_requests.html #}
 <h4>Training Requests</h4>
 
-{% if requests and requests.exists %}
+<div class="mb-3 d-flex align-items-center gap-3">
+  <form id="dmmu-status-form" method="get" class="d-flex align-items-center gap-2">
+    <label class="small mb-0">Filter by status:</label>
+    <select name="status" id="dmmu_status" class="form-select form-select-sm" style="width:220px;">
+      {% for val, label in status_choices %}
+        {% if val %}
+          <option value="{{ val }}" {% if selected_status and selected_status == val|upper %}selected{% endif %}>{{ label }}</option>
+        {% else %}
+          <option value="" {% if not selected_status %}selected{% endif %}>{{ label }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <noscript><button class="btn btn-sm btn-outline-primary">Apply</button></noscript>
+  </form>
+
+  <div class="ms-auto small text-muted">
+    {% if selected_status %}
+      Showing: <strong>{{ selected_status }}</strong>
+    {% else %}
+      Showing: <strong>All</strong>
+    {% endif %}
+  </div>
+</div>
+
+{% if requests and requests|length %}
   <div class="table-responsive">
     <table class="table table-sm table-bordered">
       <thead class="table-light">
@@ -67,3 +91,14 @@
 {% else %}
   <div class="text-muted">No training requests found.</div>
 {% endif %}
+
+<script>
+  // auto-submit when user changes status filter
+  (function(){
+    const sel = document.getElementById('dmmu_status');
+    const form = document.getElementById('dmmu-status-form');
+    if(sel && form){
+      sel.addEventListener('change', function(){ form.submit(); });
+    }
+  })();
+</script>

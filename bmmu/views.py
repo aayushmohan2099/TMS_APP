@@ -3744,20 +3744,23 @@ def dmmu_training_requests(request):
         assigned_district = None
 
     qs = TrainingRequest.objects.none()
+
     try:
         if assigned_district:
-            # best-effort: find BMMU users assigned to blocks in this district
+            # Find BMMU users under this district
             try:
-                block_assigns = BmmuBlockAssignment.objects.filter(block__district=assigned_district).values_list('user_id', flat=True)
+                block_assigns = BmmuBlockAssignment.objects.filter(
+                    block__district=assigned_district
+                ).values_list('user_id', flat=True)
                 user_ids = list(block_assigns)
-                if user_ids:
-                    qs_block = TrainingRequest.objects.filter(level__iexact='BLOCK', created_by_id__in=user_ids)
-                else:
-                    qs_block = TrainingRequest.objects.none()
+                qs_block = (
+                    TrainingRequest.objects.filter(level__iexact='BLOCK', created_by_id__in=user_ids)
+                    if user_ids else TrainingRequest.objects.none()
+                )
             except Exception:
                 qs_block = TrainingRequest.objects.none()
 
-            # Also include requests that explicitly reference this district if that field exists
+            # Requests directly tied to this district
             try:
                 qs_other = TrainingRequest.objects.filter(district=assigned_district)
             except Exception:
@@ -3768,15 +3771,49 @@ def dmmu_training_requests(request):
 
         qs = (qs_block | qs_other).distinct().order_by('-created_at')
 
-        # If nothing found, show recent BLOCK requests as fallback
-        if not qs.exists():
-            qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+        # Read and normalize status filter
+        requested_status = (request.GET.get('status') or '').strip().upper()
+
+        # Allowed statuses from model
+        VALID_STATUSES = [c[0].upper() for c in getattr(TrainingRequest, 'STATUS_CHOICES', [])]
+
+        # Apply filter if provided
+        if requested_status:
+            if requested_status in VALID_STATUSES:
+                qs = qs.filter(status__iexact=requested_status)
+            else:
+                # Invalid filter → empty queryset
+                qs = TrainingRequest.objects.none()
+        else:
+            # Only apply fallback if no filter AND no data
+            if not qs.exists():
+                qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+
     except Exception as e:
         logger.exception("dmmu_training_requests: unexpected error building queryset: %s", e)
         qs = TrainingRequest.objects.none()
 
-    fragment = render_to_string('dmmu/training_requests.html', {'requests': qs}, request=request)
-    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+    # Prepare dropdown options (add "All" on top)
+    status_choices = [('', 'All')] + list(getattr(TrainingRequest, 'STATUS_CHOICES', []))
+
+    fragment = render_to_string(
+        'dmmu/training_requests.html',
+        {
+            'requests': qs,
+            'status_choices': status_choices,
+            'selected_status': requested_status,
+        },
+        request=request,
+    )
+
+    return render(
+        request,
+        'dashboard.html',
+        {
+            'user': request.user,
+            'default_content': fragment,
+        },
+    )
 
 @login_required
 def dmmu_request_detail(request, request_id):
@@ -4031,7 +4068,13 @@ def dmmu_request_detail(request, request_id):
         participants = []
 
     # compute participant helpers (display_name, display_mobile, display_location, age)
-    today = date.today()
+    
+    try:
+        india_tz = ZoneInfo("Asia/Kolkata")
+    except Exception:
+        india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
+    
     for p in participants:
         dob = getattr(p, 'date_of_birth', None)
         age = None
@@ -4096,8 +4139,8 @@ def dmmu_request_detail(request, request_id):
                 if c.trainer_id not in trainer_cert_map:
                     trainer_cert_map[c.trainer_id] = c.certificate_number
     except Exception:
-        trainer_cert_map = {}
-
+        trainer_cert_map = {}   
+       
     if (getattr(tr, 'status', '') or '').upper() == 'COMPLETED':
         # render a closure screen listing batches (clickable rows)
         fragment_html = render_to_string('dmmu/request_closure.html', {
@@ -4111,7 +4154,7 @@ def dmmu_request_detail(request, request_id):
             'participants': participants,
             'master_trainers': master_trainers,
             'trainer_cert_map': trainer_cert_map,
-            'today': today,
+            'today': today,          
         }, request=request)
 
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
