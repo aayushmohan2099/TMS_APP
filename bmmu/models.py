@@ -712,17 +712,48 @@ class Batch(models.Model):
         return theme_part, location_name, state_id_part, training_type
 
     def save(self, *args, **kwargs):
+        """
+        Save with careful handling of many-to-many checks:
+        - Do not access self.trainers before the instance has a PK.
+        - After initial save, check trainers and possibly update status.
+        - Then generate code if missing (requires self.id).
+        """
         today = timezone.localdate()
 
-        # Auto-update status based on start_date
-        if self.start_date == today and self.status != 'ONGOING' and self.trainers.exists():
-            self.status = 'ONGOING'
-        else:
-            self.status = 'PENDING'
+        # Default tentative status (safe value before checking M2M)
+        tentative_status = 'PENDING'
 
-        # Save first so self.id exists, required for final part of code
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
+        # If we already have a pk (existing instance), we can check trainers safely now,
+        # and decide the status before calling super().save()
+        if self.pk is not None:
+            try:
+                if self.start_date == today and self.status != 'ONGOING' and self.trainers.exists():
+                    tentative_status = 'ONGOING'
+                else:
+                    tentative_status = 'PENDING'
+            except Exception:
+                tentative_status = 'PENDING'
+            self.status = tentative_status
+
+            # now save the instance normally
+            super().save(*args, **kwargs)
+
+        else:
+            # New instance: avoid accessing M2M until after we have a PK
+            # Set status to tentative safe default, save first to get an id
+            self.status = tentative_status
+            super().save(*args, **kwargs)
+
+            # After having a PK, we can safely check M2M fields and update status if needed
+            try:
+                if self.start_date == today and self.status != 'ONGOING' and self.trainers.exists():
+                    # Use update() to avoid re-entering save() logic that might access M2M again
+                    Batch.objects.filter(pk=self.pk).update(status='ONGOING')
+                    # refresh instance attribute
+                    self.status = 'ONGOING'
+            except Exception:
+                # ignore any unexpected errors and keep the saved status
+                pass
 
         # If code empty, generate it (ensures batch.id is available)
         if not self.code:
@@ -732,12 +763,11 @@ class Batch(models.Model):
             code = f"{theme_part}-{location_name}-{state_id_part}-{training_type}-{batch_id_part}"
             # make compact and max length protection
             code = code.replace(' ', '-')
-            # ensure uniqueness by appending id (already included), and truncate to 255
             code = code[:255]
-            # update
+            # update via queryset to avoid re-triggering save() that might inspect M2M
             Batch.objects.filter(pk=self.pk).update(code=code)
-            # refresh instance attribute
             self.code = code
+
 
 
 # -------------------------
