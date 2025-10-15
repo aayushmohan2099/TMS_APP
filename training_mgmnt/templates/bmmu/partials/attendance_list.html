@@ -2,6 +2,7 @@
 <div class="mb-2">
   <h6>Attendance — {{ attendance.date|date:"Y-m-d" }}</h6>
   <div class="small text-muted">Uploaded: {{ attendance.created_at|date:"Y-m-d H:i" }}</div>
+  <div class="small text-muted">{% if attendance.csv_upload %}<a href="{{ attendance.csv_upload.url }}" target="_blank">Download CSV for this date</a>{% else %}No CSVs recorded at this date{% endif %}</div>
 </div>
 
 {% with records=attendance.participant_records.all %}

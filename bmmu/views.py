@@ -3933,7 +3933,11 @@ def dmmu_request_detail(request, request_id):
                 logger.exception("dmmu_request_detail: failed processing posted trainers for batch %s", b.id)
 
         # Approve all => set request.status and all batches.status
-        today = timezone.localdate()
+        try:
+            india_tz = ZoneInfo("Asia/Kolkata")
+        except Exception:
+            india_tz = None
+        today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
         if action == 'approve_all':
             try:
                 if hasattr(tr, 'status'):

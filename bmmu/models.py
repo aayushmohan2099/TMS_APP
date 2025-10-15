@@ -715,8 +715,10 @@ class Batch(models.Model):
         today = timezone.localdate()
 
         # Auto-update status based on start_date
-        if self.start_date == today and self.status != 'ONGOING':
+        if self.start_date == today and self.status != 'ONGOING' and self.trainers.exists():
             self.status = 'ONGOING'
+        else:
+            self.status = 'PENDING'
 
         # Save first so self.id exists, required for final part of code
         is_new = self.pk is None

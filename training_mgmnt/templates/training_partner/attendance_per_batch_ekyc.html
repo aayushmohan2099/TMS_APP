@@ -154,7 +154,7 @@
         {% if attendance_list %}
           <div class="table-responsive">
             <table class="table table-sm table-hover">
-              <thead><tr><th>Date</th><th>Note / Label</th><th>CSV</th></tr></thead>
+              <thead><tr><th>Date</th><th>Note / Label</th></tr></thead>
               <tbody>
                 {% for a in attendance_list %}
                 <tr>
@@ -164,13 +164,6 @@
                     </a>
                   </td>
                   <td>{{ a.note|default:"Attendance" }}</td>
-                  <td>
-                    {% if a.csv_upload %}
-                      <a href="{{ a.csv_upload.url }}" target="_blank">CSV</a>
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -186,13 +179,6 @@
       <div class="card shadow-sm">
         <div class="card-body">
           <h5>Attendance on {{ selected_date }}</h5>
-
-          {% if attendance_obj and attendance_obj.csv_upload %}
-            <p>
-              <strong>CSV:</strong> <a href="{{ attendance_obj.csv_upload.url }}" target="_blank">Download CSV</a>
-            </p>
-          {% endif %}
-
           <table class="table table-sm table-striped">
             <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
             <tbody>
