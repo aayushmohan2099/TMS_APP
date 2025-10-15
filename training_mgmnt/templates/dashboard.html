@@ -58,6 +58,24 @@
 
         /* small helper to avoid hidden-backdrop stuck */
         .modal-backdrop.show { opacity: 0.45; }
+
+        /* === Collapsible sidebar styles (surgical, minimal) === */
+        /* when collapsed, hide the sidebar visually without changing markup order */
+        .sidebar.collapsed {
+            width: 0 !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            border-right: 0 !important;
+            overflow: hidden !important;
+        }
+        /* ensure content fills space when sidebar collapsed (no layout shift on small screens) */
+        @media (min-width: 0px) {
+            .sidebar, .content { transition: width 180ms ease, margin-left 180ms ease, padding 180ms ease; }
+        }
+        /* optional: small visual for collapsed state - show a thin divider */
+        .sidebar.collapsed + .content { /* no-op but keeps selector available if needed */ }
+        /* keep collapse toggle focus-visible outline tidy */
+        .sidebar-collapse-btn { margin-left: 8px; }
     </style>
 </head>
 <body>
@@ -80,6 +98,11 @@
               <span class="navbar-brand">Dashboard</span>
             {% endif %}
 
+            <!-- Collapsible sidebar toggle button (surgical addition; small & unobtrusive) -->
+            <button id="toggleSidebarBtn" class="btn btn-sm btn-outline-secondary sidebar-collapse-btn" type="button" aria-controls="sidebar" aria-expanded="true" title="Toggle Applications panel">
+              ☰
+            </button>
+
             <div class="ms-auto d-flex align-items-center">
                 <span class="me-3 fw-bold">👤 {{ user.username }} ({{ user.role|upper }})</span>
                 <a href="{% url 'custom_logout' %}" class="nav-link d-inline">Logout</a>
@@ -90,7 +113,7 @@
     <!-- Dashboard -->
     <div class="dashboard">
         <!-- Sidebar (SURGICAL CHANGE: dropdown group added, original create link preserved) -->
-        <div class="sidebar">
+        <div class="sidebar" id="sidebar" role="complementary" aria-label="Applications sidebar" aria-hidden="false">
             <h5>Applications</h5>
 
             <!-- Collapsible group header -->
@@ -127,13 +150,13 @@
                 <span>Payments Portal</span>
             </div>
 
-            <div class="group-header" id="tms-header" role="button" tabindex="0" aria-expanded="false" aria-controls="tms-submenu">
+            <div class="group-header" id="tms-header-reports" role="button" tabindex="0" aria-expanded="false" aria-controls="reports-submenu">
                 <span>Reports</span>
-                <span class="caret" id="tms-caret"><span style='font-size:20px;'>&#8594;</span></span>
+                <span class="caret" id="reports-caret"><span style='font-size:20px;'>&#8594;</span></span>
             </div>
 
-            <!-- Submenu: NOTE - first item preserves original behaviour calling loadContent('tms') -->
-            <div class="submenu" id="tms-submenu" aria-hidden="true">
+            <!-- Submenu: NOTE - keeps original behaviour -->
+            <div class="submenu" id="reports-submenu" aria-hidden="true">
                 <a href="#">1. Date wise Batches</a>
                 <a href="#">2. Complete Training Reports</a>
                 <a href="#">3. Batch Closure Reports</a>
@@ -184,24 +207,47 @@
         }
       }
 
-      header.addEventListener('click', function(e){
-        setOpen(!submenu.classList.contains('show'));
-      });
-
-      header.addEventListener('keydown', function(e){
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
+      if (header) {
+        header.addEventListener('click', function(e){
           setOpen(!submenu.classList.contains('show'));
-        } else if (e.key === 'ArrowRight') {
-          setOpen(true);
-        } else if (e.key === 'ArrowLeft') {
-          setOpen(false);
-        }
-      });
+        });
 
-      // Expose for manual control if needed (optional)
-      window.openTmsMenu = () => setOpen(true);
-      window.closeTmsMenu = () => setOpen(false);
+        header.addEventListener('keydown', function(e){
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen(!submenu.classList.contains('show'));
+          } else if (e.key === 'ArrowRight') {
+            setOpen(true);
+          } else if (e.key === 'ArrowLeft') {
+            setOpen(false);
+          }
+        });
+
+        // Expose for manual control if needed (optional)
+        window.openTmsMenu = () => setOpen(true);
+        window.closeTmsMenu = () => setOpen(false);
+      }
+
+      // reports submenu small toggle
+      const reportsHeader = document.getElementById('tms-header-reports');
+      const reportsSub = document.getElementById('reports-submenu');
+      const reportsCaret = document.getElementById('reports-caret');
+      if (reportsHeader) {
+        reportsHeader.addEventListener('click', () => {
+          const open = reportsSub.classList.contains('show');
+          if (open) {
+            reportsSub.classList.remove('show');
+            reportsCaret.classList.remove('open');
+            reportsHeader.setAttribute('aria-expanded','false');
+            reportsSub.setAttribute('aria-hidden','true');
+          } else {
+            reportsSub.classList.add('show');
+            reportsCaret.classList.add('open');
+            reportsHeader.setAttribute('aria-expanded','true');
+            reportsSub.setAttribute('aria-hidden','false');
+          }
+        });
+      }
     })();
     </script>
 
@@ -348,6 +394,57 @@
     // Expose helpers for debugging in console
     window.loadContent = loadContent;
     window.cleanupModalArtifacts = cleanupModalArtifacts;
+    </script>
+
+    <!-- === Collapsible sidebar toggle script (surgical, minimal) === -->
+    <script>
+    (function(){
+      const toggleBtn = document.getElementById('toggleSidebarBtn');
+      const sidebar = document.getElementById('sidebar');
+
+      if (!toggleBtn || !sidebar) return;
+
+      // read initial state (if you want to persist, can use sessionStorage - kept off by default)
+      let collapsed = false;
+
+      function setCollapsed(val) {
+        collapsed = !!val;
+        if (collapsed) {
+          sidebar.classList.add('collapsed');
+          sidebar.setAttribute('aria-hidden', 'true');
+          toggleBtn.setAttribute('aria-expanded', 'false');
+        } else {
+          sidebar.classList.remove('collapsed');
+          sidebar.setAttribute('aria-hidden', 'false');
+          toggleBtn.setAttribute('aria-expanded', 'true');
+        }
+      }
+
+      toggleBtn.addEventListener('click', function(e){
+        setCollapsed(!collapsed);
+      });
+
+      // keyboard accessibility: allow toggle via Enter/Space when focused
+      toggleBtn.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setCollapsed(!collapsed);
+        }
+      });
+
+      // close sidebar when clicking outside if it's open (non-intrusive)
+      document.addEventListener('click', function(e){
+        if (!collapsed && sidebar && !sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
+          // keep behavior subtle: do not auto-close on large screens; only close on narrow screens
+          if (window.innerWidth < 900) setCollapsed(true);
+        }
+      });
+
+      // initialize ARIA state
+      setCollapsed(true);
+      // expose for debugging
+      window.setSidebarCollapsed = setCollapsed;
+    })();
     </script>
 </body>
 </html>
