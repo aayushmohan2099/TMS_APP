@@ -71,9 +71,9 @@
                   <td class="align-middle">
                     {# link to batch page (bmmu_batch_view) - b.id must be present; guard if missing #}
                     {% if b.id %}
-                      <a href="{% url 'bmmu_batch_view' b.id %}" class="btn btn-sm btn-primary">View</a>
+                      <a href="{% url 'bmmu_batch_view' b.id %}" class="btn btn-sm btn-primary" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
                     {% else %}
-                      <button class="btn btn-sm btn-secondary" onclick="history.back()">View</button>
+                      <button class="btn btn-sm btn-secondary" onclick="history.back()" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></button>
                     {% endif %}
                   </td>
                 </tr>
@@ -97,6 +97,7 @@
             <tr>
               <th>Name</th>
               <th>Mobile</th>
+              <th>SHG</th>
               <th>Location</th>
               <th>Age</th>
             </tr>
@@ -106,6 +107,7 @@
               <tr>
                 <td>{{ p.display_name }}</td>
                 <td>{{ p.display_mobile }}</td>
+                <td>{{ p.shg_name }}</td>
                 <td>{{ p.display_location }}</td>
                 <td>{{ p.age|default:"-" }}</td>
               </tr>

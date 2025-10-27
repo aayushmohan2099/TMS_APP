@@ -7,56 +7,82 @@
   const SERVER_TRAINERS = {{ trainers_json|default:"[]"|safe }} ;
   const SERVER_TRAINERS_MAP = {{ trainers_map_json|default:"{}"|safe }} ;
   const SERVER_BATCHES = {{ batches_json|default:"[]"|safe }} ;
+  const SERVER_BLOCKS = {{ blocks_json|default:"[]"|safe }} ;             // NEW
+  const SERVER_USER_ROLE = {{ user_role|default:"\"\""|safe }} ;         // NEW
+  const SERVER_USER_BLOCK_ID = {{ user_block_id|default:"null"|safe }} ; // NEW
+  const SERVER_USER_DISTRICT_ID = {{ user_district_id|default:"null"|safe }} ; // NEW
 </script>
 
 <div class="tms-panel p-3">
   <h5>Training Management — Quick Request (Table view)</h5>
 
   <div class="row g-2">
-    <div class="col-md-4">
+    <div class="col-md-3">
       <label class="form-label small">Theme</label>
       <select id="tms_theme" class="form-select form-select-sm"></select>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
       <label class="form-label small">Module</label>
       <select id="tms_module" class="form-select form-select-sm"></select>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
       <label class="form-label small">Participant Type</label>
       {% if user.is_authenticated %}
         {% with role_lower=user.role|default:""|lower %}
           {% if role_lower == "smmu" %}
             <select id="tms_type" class="form-select form-select-sm">
               <option value="">Select type</option>
-              <option value="TRAINER">BRPs | Block Resource Persons</option>
-              <option value="TRAINER">DRPs | District Resource Persons</option>
-              <option value="TRAINER">SRPs | State Resource Persons</option>
-            </select>            
+              <option value="TRAINER|BRP">BRPs | Block Resource Persons</option>
+              <option value="TRAINER|DRP">DRPs | District Resource Persons</option>
+              <option value="TRAINER|SRP">SRPs | State Resource Persons</option>
+            </select>
           {% elif role_lower == "bmmu" %}
             <select id="tms_type" class="form-select form-select-sm">
               <option value="">Select type</option>
               <option value="BENEFICIARY">Beneficiaries | SHG Members</option>
-              <option value="TRAINER">BRPs | Block Resource Persons</option>
+              <option value="TRAINER|BRP">BRPs | Block Resource Persons</option>
             </select>
           {% else %}
             <select id="tms_type" class="form-select form-select-sm">
               <option value="">Select type</option>
               <option value="BENEFICIARY">Beneficiaries | SHG Members</option>
-              <option value="TRAINER">BRPs | Block Resource Persons</option>
-              <option value="TRAINER">DRPs | District Resource Persons</option>
-            </select>            
+              <option value="TRAINER|BRP">BRPs | Block Resource Persons</option>
+              <option value="TRAINER|DRP">DRPs | District Resource Persons</option>
+            </select>
           {% endif %}
         {% endwith %}
       {% else %}
             <select id="tms_type" class="form-select form-select-sm">
               <option value="">Select type</option>
               <option value="BENEFICIARY">Beneficiaries | SHG Members</option>
-              <option value="TRAINER">BRPs | Block Resource Persons</option>
-              <option value="TRAINER">DRPs | District Resource Persons</option>
-              <option value="TRAINER">SRPs | State Resource Persons</option>
-            </select>                    
+              <option value="TRAINER|BRP">BRPs | Block Resource Persons</option>
+              <option value="TRAINER|DRP">DRPs | District Resource Persons</option>
+              <option value="TRAINER|SRP">SRPs | State Resource Persons</option>
+            </select>
       {% endif %}
     </div>
+
+    <!-- NEW surgical control area for DMMU/BMMU filters (blocks / aspirational / designation) -->
+    <div class="col-md-3" id="tms_extra_filters_wrapper" style="display:none;">
+      <label class="form-label small">Filters</label>
+      <div class="d-flex gap-1">
+        <select id="tms_block_filter" class="form-select form-select-sm" style="min-width:140px;">
+          <option value="">All blocks</option>
+        </select>
+        <select id="tms_asp_filter" class="form-select form-select-sm" style="width:120px;">
+          <option value="">All</option>
+          <option value="1">Aspirational</option>
+          <option value="0">Non-aspirational</option>
+        </select>
+        <select id="tms_designation_filter" class="form-select form-select-sm" style="width:120px; display:none;">
+          <option value="">Any designation</option>
+          <option value="BRP">BRP</option>
+          <option value="DRP">DRP</option>
+          <option value="SRP">SRP</option>
+        </select>
+      </div>
+    </div>
+
   </div>
 
   <div class="mt-3" id="tms_participants_wrapper" style="display:none;">
@@ -74,9 +100,6 @@
           <option value="name">Name</option>
           <option value="village">Village</option>
         </select>
-
-        <!-- SURGICAL CHANGE: removed duplicate "Select All" control here.
-             The header checkbox in the table will be the single select-all control. -->
       </div>
     </div>
 
@@ -104,8 +127,12 @@
   // server blobs
   const THEMES = Array.isArray(SERVER_THEMES) ? SERVER_THEMES : [];
   const MODULES_MAP = (SERVER_MODULES_MAP && Object.keys(SERVER_MODULES_MAP||{}).length) ? SERVER_MODULES_MAP : {};
-  const BENEFICIARIES = Array.isArray(SERVER_BENEFICIARIES) ? SERVER_BENEFICIARIES : [];
-  const TRAINERS = Array.isArray(SERVER_TRAINERS) ? SERVER_TRAINERS : [];
+  let BENEFICIARIES = Array.isArray(SERVER_BENEFICIARIES) ? SERVER_BENEFICIARIES : [];
+  let TRAINERS = Array.isArray(SERVER_TRAINERS) ? SERVER_TRAINERS : [];
+  const BLOCKS = Array.isArray(SERVER_BLOCKS) ? SERVER_BLOCKS : [];
+  const USER_ROLE = (SERVER_USER_ROLE||'').toLowerCase();
+  const USER_BLOCK_ID = SERVER_USER_BLOCK_ID || null;
+  const USER_DISTRICT_ID = SERVER_USER_DISTRICT_ID || null;
 
   // dom refs
   const themeSel = document.getElementById('tms_theme');
@@ -117,10 +144,14 @@
   const controls = document.getElementById('tms_part_controls');
   const searchInput = document.getElementById('tms_search');
   const sortSel = document.getElementById('tms_sort');
-  // NOTE: selectAllCb removed (duplicate control) - header checkbox will be used instead
   const nominateBtn = document.getElementById('tms_nominate');
   const feedback = document.getElementById('tms_feedback');
   const participantsLabel = document.getElementById('tms_participants_label');
+
+  const extraFilters = document.getElementById('tms_extra_filters_wrapper');
+  const blockFilter = document.getElementById('tms_block_filter');
+  const aspFilter = document.getElementById('tms_asp_filter');
+  const designationFilter = document.getElementById('tms_designation_filter');
 
   function clear(el){ while(el.firstChild) el.removeChild(el.firstChild); }
 
@@ -145,6 +176,25 @@
     });
   }
 
+  // populate blocks filter
+  function populateBlockFilter(){
+    clear(blockFilter);
+    const op = document.createElement('option'); op.value=''; op.text='All blocks'; blockFilter.appendChild(op);
+    BLOCKS.forEach(b => {
+      // if user is BMMU show only that block
+      if(USER_ROLE === 'bmmu' && USER_BLOCK_ID){
+        if(String(b.id) !== String(USER_BLOCK_ID)) return;
+      }
+      const o = document.createElement('option'); o.value = b.id; o.text = b.name + (b.is_aspirational ? ' (Aspirational)' : '');
+      blockFilter.appendChild(o);
+    });
+    // if user is BMMU, lock it to their block
+    if(USER_ROLE === 'bmmu' && USER_BLOCK_ID){
+      blockFilter.value = USER_BLOCK_ID;
+      blockFilter.disabled = true;
+    }
+  }
+
   // Helper: update header checkbox state based on visible rows
   function updateHeadCheckbox() {
     const headAll = document.getElementById('head_select_all');
@@ -162,40 +212,84 @@
     headAll.indeterminate = (!allChecked && someChecked);
   }
 
-  function showParticipantsTable(type){
+  function showParticipantsTable(type, subtype){
     clear(tableHead); clear(tableBody);
     controls.style.display = '';
     wrapper.style.display = 'block';
     // SEARCH reset is fine for a fresh view
     searchInput.value = '';
 
+    // show extra filters area for dmmu/smmu role or when trainers are selected
+    if(USER_ROLE === 'dmmu' || USER_ROLE === 'smmu' || USER_ROLE === 'bmmu'){
+      extraFilters.style.display = '';
+    } else {
+      extraFilters.style.display = 'none';
+    }
+
+    // show designation filter when trainers expected
+    if(type === 'TRAINER'){
+      designationFilter.style.display = '';
+    } else {
+      designationFilter.style.display = 'none';
+    }
+
+    // Build filtered arrays from server lists (we also do exclusion on server side; this is an extra safety)
+    let benList = Array.isArray(BENEFICIARIES) ? BENEFICIARIES.slice() : [];
+    let trainerList = Array.isArray(TRAINERS) ? TRAINERS.slice() : [];
+
+    // Apply block / aspirational filter if set
+    function applyBlockFilters() {
+      const bf = blockFilter.value || '';
+      const asp = aspFilter.value;
+      if(bf){
+        // beneficiaries have block_id field
+        benList = benList.filter(b => String(b.block_id) === String(bf));
+        trainerList = trainerList.filter(t => {
+          // trainers don't carry block on server; keep trainers as-is (they are district/empanelled)
+          return true;
+        });
+      }
+      if(asp !== ''){
+        const isasp = asp === '1';
+        // find block ids which are aspirational
+        const aspBlockIds = BLOCKS.filter(b => !!b.is_aspirational).map(b => String(b.id));
+        if(isasp){
+          benList = benList.filter(b => aspBlockIds.indexOf(String(b.block_id)) !== -1);
+        } else {
+          benList = benList.filter(b => aspBlockIds.indexOf(String(b.block_id)) === -1);
+        }
+      }
+    }
+
+    // initial apply block filters
+    applyBlockFilters();
+
     if(type === 'BENEFICIARY'){
       participantsLabel.textContent = 'Select Beneficiaries';
       // head
       const headRow = document.createElement('tr');
       headRow.innerHTML = `
-        <!-- header checkbox is the single 'select all' control -->
         <th style="width:40px;"><input type="checkbox" id="head_select_all"></th>
         <th>Member Name</th>
         <th>SHG</th>
         <th>Village</th>
+        <th>Block</th>
         <th>District</th>
         <th>Mobile</th>
-        <th>Category</th>
       `;
       tableHead.appendChild(headRow);
 
       // body rows
-      BENEFICIARIES.forEach(b => {
+      benList.forEach(b => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><input type="checkbox" class="tms-row" data-id="${b.id}"></td>
           <td>${escapeHtml(b.member_name)}</td>
           <td>${escapeHtml(b.shg_name)}</td>
           <td>${escapeHtml(b.village)}</td>
-          <td>${escapeHtml(b.district)}</td>
+          <td>${escapeHtml(b.block_name || '')}</td>
+          <td>${escapeHtml(b.district || '')}</td>
           <td>${escapeHtml(b.mobile)}</td>
-          <td>${escapeHtml(b.category)}</td>
         `;
         tableBody.appendChild(tr);
       });
@@ -205,20 +299,34 @@
       headRow.innerHTML = `
         <th style="width:40px;"><input type="checkbox" id="head_select_all"></th>
         <th>Name</th>
+        <th>Designation</th>
         <th>Certificate</th>
         <th>Skills / Notes</th>
         <th>Phone</th>
       `;
       tableHead.appendChild(headRow);
 
-      TRAINERS.forEach(t => {
+      // apply designation filter client-side
+      const des = (designationFilter.value||'').toUpperCase();
+      let filteredTrainers = trainerList.slice();
+      if(des){
+        filteredTrainers = filteredTrainers.filter(t => ((t.designation||'') === des));
+      }
+
+      // also if user is dmmu and USER_DISTRICT_ID set, ensure trainers empanel district matches (server already did, but double-check)
+      if(USER_ROLE === 'dmmu' && USER_DISTRICT_ID){
+        filteredTrainers = filteredTrainers.filter(t => String(t.empanel_district || t.empanel_district || '') === String(USER_DISTRICT_ID) || String(t.empanel_district || '') === String(USER_DISTRICT_ID));
+      }
+
+      filteredTrainers.forEach(t => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><input type="checkbox" class="tms-row" data-id="${t.id}"></td>
           <td>${escapeHtml(t.full_name)}</td>
+          <td>${escapeHtml((t.designation||'') )}</td>
           <td>${escapeHtml(t.certificate_number)}</td>
           <td>${escapeHtml(t.skills)}</td>
-          <td>${escapeHtml(t.mobile)}</td>
+          <td>${escapeHtml(t.mobile || '')}</td>
         `;
         tableBody.appendChild(tr);
       });
@@ -229,23 +337,20 @@
       return;
     }
 
-    // ---- WIRE header select all to only toggle VISIBLE rows (surgical change) ----
+    // ---- WIRE header select all to only toggle VISIBLE rows ----
     const headAll = document.getElementById('head_select_all');
     if(headAll){
-      // reset state
       headAll.checked = false;
       headAll.indeterminate = false;
 
       headAll.addEventListener('change', function(){
         const ch = !!this.checked;
-        // Only change checkboxes for visible rows
         document.querySelectorAll('#tms_table_body .tms-row').forEach(cb => {
           const tr = cb.closest('tr');
           if(!tr) return;
           if(tr.style.display === 'none') return; // do not toggle hidden rows
           cb.checked = ch;
         });
-        // after toggling, ensure head checkbox is correct (no indeterminate)
         updateHeadCheckbox();
       });
     }
@@ -253,7 +358,6 @@
     // Attach per-row change listeners to update header checkbox and preserve user selections
     Array.from(document.querySelectorAll('#tms_table_body .tms-row')).forEach(cb => {
       cb.addEventListener('change', function(){
-        // when a row toggles, just update head checkbox state (reflect visible rows)
         updateHeadCheckbox();
       });
     });
@@ -273,14 +377,10 @@
       const hay = r.textContent.toLowerCase();
       r.style.display = (!text || hay.indexOf(text) !== -1) ? '' : 'none';
     });
-    // After filtering, update header checkbox to reflect visible rows only.
     updateHeadCheckbox();
   }
 
   function collectCheckedIds(){
-    // collect ALL checked rows (visible or hidden). This keeps behavior intuitive:
-    // if user explicitly checked some hidden rows via some other UI, they'd be included.
-    // In the typical flow users only check visible rows, so this will return exactly those they selected.
     return Array.from(document.querySelectorAll('#tms_table_body .tms-row:checked')).map(cb => parseInt(cb.dataset.id));
   }
 
@@ -288,10 +388,34 @@
   themeSel.addEventListener('change', function(){ populateModulesForTheme(this.value); });
   moduleSel.addEventListener('change', function(){ /* can show partner info if available */ });
 
+  // block filter interactions
+  blockFilter.addEventListener('change', function(){
+    // re-show participants table according to currently selected type
+    const currentType = (typeSel.value || '').split('|')[0];
+    const subtype = (typeSel.value || '').split('|')[1] || '';
+    // rebuild filtered server arrays on the fly: to keep surgical changes, we'll just call showParticipantsTable
+    showParticipantsTable(currentType, subtype);
+  });
+  aspFilter.addEventListener('change', function(){
+    const currentType = (typeSel.value || '').split('|')[0];
+    showParticipantsTable(currentType);
+  });
+  designationFilter.addEventListener('change', function(){
+    const currentType = (typeSel.value || '').split('|')[0];
+    showParticipantsTable(currentType);
+  });
+
   typeSel.addEventListener('change', function(){
-    const t = (this.value||'').toUpperCase();
-    if(!t){ wrapper.style.display='none'; controls.style.display='none'; return; }
-    showParticipantsTable(t);
+    const v = (this.value||'');
+    if(!v){ wrapper.style.display='none'; controls.style.display='none'; return; }
+    const parts = v.split('|');
+    const t = parts[0] ? parts[0].toUpperCase() : '';
+    const subtype = parts[1] || '';
+    // ensure block filter populated when needed
+    populateBlockFilter();
+    showParticipantsTable(t, subtype);
+    // show controls area
+    controls.style.display = '';
   });
 
   // search input - do not reset selections, only hide/show rows
@@ -300,7 +424,7 @@
   nominateBtn.addEventListener('click', function(){
     feedback.textContent = '';
     const moduleId = moduleSel.value;
-    const trainingType = (typeSel.value || '').toUpperCase();
+    const trainingType = (typeSel.value || '').split('|')[0] || '';
     if(!moduleId){ feedback.innerHTML = '<span class="text-danger small">Please select module.</span>'; return; }
     if(!trainingType){ feedback.innerHTML = '<span class="text-danger small">Please select training type.</span>'; return; }
     const checked = collectCheckedIds();
@@ -335,6 +459,7 @@
   try{
     populateThemes();
     populateModulesForTheme('');
+    populateBlockFilter();
   }catch(e){ console.error('tms table init error', e); }
 })();
 </script>

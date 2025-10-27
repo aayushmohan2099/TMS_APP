@@ -64,12 +64,13 @@
       {% if beneficiaries %}
         <div class="table-responsive shadow-sm" style="background:#fff; border-radius:6px; padding:6px; max-height:360px; overflow:auto;">
           <table class="table table-sm table-striped mb-0">
-            <thead class="table-light"><tr><th>Name</th><th>Mobile</th><th>Location</th></tr></thead>
+            <thead class="table-light"><tr><th>Name</th><th>Mobile</th><th>SHG</th><th>Location</th></tr></thead>
             <tbody>
               {% for b in beneficiaries %}
                 <tr>
                   <td>{{ b.member_name }}</td>
                   <td>{{ b.mobile_no|default:"-" }}</td>
+                  <td>{{ b.shg_name }}</td>
                   <td>
                     {% if b.village %}{{ b.village }}{% endif %}
                     {% if b.block %}, {{ b.block.block_name_en|default:b.block }}{% endif %}

@@ -93,7 +93,7 @@
                 {% if status == "BATCHING" %}
                   <span class="text-muted small">No actions necessary</span>
                 {% else %}
-                  <a class="btn btn-sm btn-outline-primary ms-1" href="{% url 'bmmu_request_detail' tr.id %}">View</a>
+                  <a class="btn btn-sm btn-outline-primary ms-1" href="{% url 'bmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
                 {% endif %}
               </td>
             </tr>

@@ -1287,6 +1287,7 @@ def bmmu_delete_beneficiaries(request):
                 return JsonResponse({"error": "No beneficiaries selected"}, status=400)
         return redirect("dashboard")
 
+
 @login_required
 def training_program_management(request):
     """
@@ -1309,6 +1310,11 @@ def training_program_management(request):
         trainers = []
         trainers_map = {}
         batches = []
+        blocks_list = []
+        user_block_id = None
+        user_district_id = None
+        user_role = getattr(request.user, 'role', '') or ''
+
         try:
             # themes: distinct theme names (safe)
             themes_qs = TrainingPlan.objects.values_list('theme', flat=True).distinct()
@@ -1329,22 +1335,128 @@ def training_program_management(request):
             partners_qs = TrainingPartner.objects.all()[:200]
             partners = [{'id': p.id, 'name': p.name} for p in partners_qs]
 
-            # beneficiaries list (limited)
-            ben_qs = Beneficiary.objects.all()[:500]
+            # --- compute exclusions: beneficiaries/trainers already in ONGOING batches ---
+            ongoing_beneficiary_ids = set()
+            ongoing_trainer_ids = set()
+            try:
+                # BatchBeneficiary has beneficiary FK; filter by batch.status == 'ONGOING'
+                ongoing_beneficiary_ids = set(
+                    BatchBeneficiary.objects.filter(batch__status='ONGOING').values_list('beneficiary_id', flat=True)
+                )
+            except Exception:
+                # defensive fallback: try Batch -> beneficiaries if available
+                try:
+                    ongoing_beneficiary_ids = set(
+                        Batch.objects.filter(status='ONGOING').values_list('batch_beneficiaries__beneficiary_id', flat=True)
+                    )
+                except Exception:
+                    ongoing_beneficiary_ids = set()
+
+            try:
+                ongoing_trainer_ids = set(
+                    TrainerBatchParticipation.objects.filter(batch__status='ONGOING').values_list('trainer_id', flat=True)
+                )
+            except Exception:
+                try:
+                    ongoing_trainer_ids = set(
+                        Batch.objects.filter(status='ONGOING').values_list('trainerparticipations__trainer_id', flat=True)
+                    )
+                except Exception:
+                    ongoing_trainer_ids = set()
+
+            # --- Role-based filtering and lists ---
+            role_lower = (getattr(request.user, 'role', '') or '').lower()
+
+            # Prepare blocks list (useful for DMMU filters). Send minimal info: id, name, is_aspirational, district_id
+            blocks_qs = Block.objects.all().only('block_id', 'block_name_en', 'is_aspirational', 'district_id')[:2000]
+            blocks_list = [
+                {'id': b.block_id, 'name': b.block_name_en or str(b.block_id), 'is_aspirational': bool(b.is_aspirational), 'district_id': getattr(b, 'district_id', None)}
+                for b in blocks_qs
+            ]
+
+            # Determine user assignments (block/district) safely
+            try:
+                if role_lower == 'bmmu':
+                    # user should have bmmu_block_assignment
+                    bmmu_assign = getattr(request.user, 'bmmu_block_assignment', None)
+                    if bmmu_assign and getattr(bmmu_assign, 'block', None):
+                        user_block_id = getattr(bmmu_assign.block, 'block_id', None)
+                        # block has district FK
+                        user_district_id = getattr(bmmu_assign.block, 'district_id', None) or (getattr(bmmu_assign.block, 'district_id', None))
+                elif role_lower == 'dmmu':
+                    dmmu_assign = getattr(request.user, 'dmmu_district_assignment', None)
+                    if dmmu_assign and getattr(dmmu_assign, 'district', None):
+                        user_district_id = getattr(dmmu_assign.district, 'district_id', None) or getattr(dmmu_assign.district, 'id', None)
+            except Exception:
+                # ignore assignment issues
+                user_block_id = user_block_id or None
+                user_district_id = user_district_id or None
+
+            # --- Beneficiaries list: apply role filters and exclude ongoing participants ---
+            # Default: all beneficiaries (limited)
+            ben_qs = Beneficiary.objects.all()
+
+            if role_lower == 'bmmu' and user_block_id:
+                # beneficiaries from the BMMU's block only
+                ben_qs = ben_qs.filter(block__block_id=user_block_id)
+            elif role_lower == 'dmmu' and user_district_id:
+                # beneficiaries from the DMMU's district only
+                ben_qs = ben_qs.filter(district__district_id=user_district_id)
+            else:
+                # smmu or other roles: leave as full set (but still exclude ongoing)
+                ben_qs = ben_qs
+
+            # exclude beneficiaries who are already in ongoing batches
+            if ongoing_beneficiary_ids:
+                ben_qs = ben_qs.exclude(id__in=ongoing_beneficiary_ids)
+
+            ben_qs = ben_qs[:500]
             beneficiaries = [
                 {
                     'id': b.id,
                     'member_name': getattr(b, 'member_name', '') or str(b),
                     'shg_name': getattr(b, 'shg_name', '') or '',
                     'village': getattr(b, 'village', '') or '',
-                    'district': getattr(b, 'district', '') or '',
+                    'block_id': getattr(b.block, 'block_id', None) if getattr(b, 'block', None) else None,
+                    'block_name': getattr(b.block, 'block_name_en', '') if getattr(b, 'block', None) else '',
+                    'district': getattr(b, 'district', ' ') if getattr(b, 'district', None) else '',
                     'mobile': getattr(b, 'mobile_no', '') or getattr(b, 'mobile', '') or '',
                     'category': getattr(b, 'social_category', '') or ''
                 } for b in ben_qs
             ]
 
-            # trainers: all master trainers (limited)
-            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')[:1000]
+            # --- Trainers list: apply role filters and designation and exclude ongoing trainers ---
+            # By default, show master trainers but filtered by role-specific rules:
+            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')
+
+            if role_lower == 'bmmu' and user_block_id:
+                # BRPs only, and from the district of the block (block -> district)
+                # find block -> district
+                try:
+                    block_obj = Block.objects.filter(block_id=user_block_id).first()
+                    brp_district_id = getattr(block_obj, 'district_id', None) if block_obj else None
+                    if brp_district_id:
+                        mt_qs = mt_qs.filter(designation='BRP').filter(empanel_district=str(brp_district_id))
+                    else:
+                        mt_qs = mt_qs.filter(designation='BRP')
+                except Exception:
+                    mt_qs = mt_qs.filter(designation='BRP')
+            elif role_lower == 'dmmu' and user_district_id:
+                # For dmmu: trainers lists (BRP/DRP) should show trainers in same district
+                mt_qs = mt_qs.filter(empanel_district=str(user_district_id))
+            elif role_lower == 'smmu':
+                # SMMU: show all trainers; front-end will show designation filter (we provide designations)
+                mt_qs = mt_qs
+            else:
+                # fallback: no specific filter
+                mt_qs = mt_qs
+
+            # exclude trainers who are already in ongoing batches
+            if ongoing_trainer_ids:
+                mt_qs = mt_qs.exclude(id__in=ongoing_trainer_ids)
+
+            # limit
+            mt_qs = mt_qs[:1000]
             trainers = []
             for t in mt_qs:
                 cert_num = ''
@@ -1352,8 +1464,11 @@ def training_program_management(request):
                 try:
                     latest = next(iter(sorted(t.certificates.all(), key=lambda c: ((c.issued_on or ''), c.id), reverse=True)), None)
                 except Exception:
-                    latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
-                    cert_num = latest_q.first() or ''
+                    try:
+                        latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
+                        cert_num = latest_q.first() or ''
+                    except Exception:
+                        cert_num = ''
                 else:
                     if latest:
                         cert_num = latest.certificate_number or ''
@@ -1362,13 +1477,13 @@ def training_program_management(request):
                     'id': t.id,
                     'full_name': t.full_name,
                     'certificate_number': cert_num,
-                    'skills': (t.skills or '')
+                    'skills': (t.skills or ''),
+                    'designation': (t.designation or '').upper(),
+                    'mobile': getattr(t, 'mobile_no', '') or ''
                 })
 
             # trainers_map: first use explicit MasterTrainerExpertise if present
-            # fall back to matching trainer.skills contains training_name or theme tokens
             try:
-                # explicit expertise entries
                 for e in MasterTrainerExpertise.objects.select_related('trainer', 'training_plan').all():
                     tp_id = e.training_plan_id
                     trainers_map.setdefault(tp_id, [])
@@ -1379,7 +1494,6 @@ def training_program_management(request):
                 pass
 
             # fallback matching by skills: if modules_map entries exist, try to attach trainers by skills
-            # build a quick lookup of trainers' skills tokens
             trainer_skill_tokens = {}
             for t in mt_qs:
                 tokens = set()
@@ -1388,12 +1502,10 @@ def training_program_management(request):
                         tokens.add(tok)
                 trainer_skill_tokens[t.id] = tokens
 
-            # for each training plan, try to find trainers whose skills match training_name or theme
             for tp in tp_qs:
                 tp_id = tp.id
                 if tp_id not in trainers_map:
                     trainers_map[tp_id] = []
-                search_candidates = []
                 name_tokens = set([tok.strip().lower() for tok in ((tp.training_name or '') + ' ' + (tp.theme or '')).split() if tok.strip()])
                 if name_tokens:
                     for t_id, toks in trainer_skill_tokens.items():
@@ -1402,17 +1514,15 @@ def training_program_management(request):
                                 trainers_map[tp_id].append(t_id)
 
             # live batches: pick ONGOING and PENDING (common statuses)
-            # Safe check if Batch model has expected fields
             batch_status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
             statuses_of_interest = [s for s in ('ONGOING', 'PENDING') if s in batch_status_choices]
             if statuses_of_interest:
-                batch_qs = Batch.objects.filter(status__in=statuses_of_interest).select_related('training_plan', 'partner')[:200]
+                batch_qs = Batch.objects.filter(status__in=statuses_of_interest).select_related('request')[:200]
             else:
-                # fallback: show last 50 batches if none of those statuses exist
-                batch_qs = Batch.objects.all().select_related('training_plan', 'partner').order_by('-created_at')[:50]
+                batch_qs = Batch.objects.all().select_related('request').order_by('-created_at')[:50]
 
             for b in batch_qs:
-                tp = getattr(b, 'training_plan', None)
+                tp = getattr(b, 'request', None) and getattr(b.request, 'training_plan', None)
                 batches.append({
                     'id': b.id,
                     'code': b.code or f'Batch-{b.id}',
@@ -1422,9 +1532,10 @@ def training_program_management(request):
                     'end': b.end_date.isoformat() if b.end_date else None,
                     'days': getattr(tp, 'no_of_days', None) if tp else None,
                     'trainers_count': b.trainers.count() if hasattr(b, 'trainers') else 0,
-                    'participants_count': b.beneficiaries.count() if hasattr(b, 'beneficiaries') else 0,
+                    'participants_count': b.batch_beneficiaries.count() if hasattr(b, 'batch_beneficiaries') else 0,
                     'status': b.status
                 })
+
         except Exception as e:
             logger.exception("training_program_management: failed to load server data: %s", e)
 
@@ -1436,6 +1547,10 @@ def training_program_management(request):
             'trainers_json': json.dumps(trainers, default=str),
             'trainers_map_json': json.dumps(trainers_map, default=str),
             'batches_json': json.dumps(batches, default=str),
+            'blocks_json': json.dumps(blocks_list, default=str),           # NEW: blocks payload (for dmmu filters)
+            'user_role': json.dumps(user_role or '', default=str),         # NEW: user role for front-end logic
+            'user_block_id': json.dumps(user_block_id or None, default=str),
+            'user_district_id': json.dumps(user_district_id or None, default=str),
         }
         html = render_to_string("apps/tms.html", context, request=request)
         return HttpResponse(html)

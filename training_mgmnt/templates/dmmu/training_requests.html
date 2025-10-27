@@ -73,13 +73,13 @@
                 {% if status == "BATCHING" %}
                   <a class="btn btn-sm btn-outline-secondary ms-1">No actions necessary</a>
                 {% elif status == "PENDING" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">Approval</a>
+                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
                 {% elif status == "ONGOING" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">View Progress</a>
+                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
                 {% elif status == "REJECTED" %}
                   <a class="btn btn-sm btn-outline-secondary ms-1">No actions necessary</a>
                 {% elif status == "COMPLETED" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}">Closure</a>
+                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
                 {% endif %}
               </td>
             </tr>
