@@ -174,7 +174,7 @@ class MasterTrainerCertificateInline(admin.TabularInline):
 class MasterTrainerAdmin(ImportExportModelAdmin, admin.ModelAdmin):
     resource_class = MasterTrainerResource
     list_display = ("id", "full_name", "designation", "mobile_no", "empanel_district", "created_at")
-    search_fields = ("full_name", "mobile_no", "aadhaar_no")
+    search_fields = ("full_name", "mobile_no", "aadhaar_no", "empanel_district")
     list_filter = ("designation",)
     inlines = (MasterTrainerCertificateInline,)
 

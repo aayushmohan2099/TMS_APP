@@ -11,6 +11,9 @@
   const SERVER_USER_ROLE = {{ user_role|default:"\"\""|safe }} ;         // NEW
   const SERVER_USER_BLOCK_ID = {{ user_block_id|default:"null"|safe }} ; // NEW
   const SERVER_USER_DISTRICT_ID = {{ user_district_id|default:"null"|safe }} ; // NEW
+  // === NEW: server-side list of beneficiary IDs currently in ONGOING batches ===
+  // Add this variable in the view context as `ongoing_beneficiaries_json` (list of ids). If not provided it defaults to [].
+  const SERVER_ONGOING_BENEFICIARY_IDS = {{ ongoing_beneficiaries_json|default:"[]"|safe }} ;
 </script>
 
 <div class="tms-panel p-3">
@@ -133,6 +136,7 @@
   const USER_ROLE = (SERVER_USER_ROLE||'').toLowerCase();
   const USER_BLOCK_ID = SERVER_USER_BLOCK_ID || null;
   const USER_DISTRICT_ID = SERVER_USER_DISTRICT_ID || null;
+  const ONGOING_BEN_IDS = Array.isArray(SERVER_ONGOING_BENEFICIARY_IDS) ? SERVER_ONGOING_BENEFICIARY_IDS.map(x => String(x)) : [];
 
   // dom refs
   const themeSel = document.getElementById('tms_theme');
@@ -236,6 +240,12 @@
     // Build filtered arrays from server lists (we also do exclusion on server side; this is an extra safety)
     let benList = Array.isArray(BENEFICIARIES) ? BENEFICIARIES.slice() : [];
     let trainerList = Array.isArray(TRAINERS) ? TRAINERS.slice() : [];
+
+    // === NEW: remove any beneficiaries that the server told us are currently in ONGOING batches ===
+    if(Array.isArray(ONGOING_BEN_IDS) && ONGOING_BEN_IDS.length){
+      benList = benList.filter(b => !ONGOING_BEN_IDS.includes(String(b.id)));
+    }
+    // === end new ===
 
     // Apply block / aspirational filter if set
     function applyBlockFilters() {

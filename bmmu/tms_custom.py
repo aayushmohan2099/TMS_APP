@@ -56,12 +56,11 @@ def _get_ongoing_trainer_ids():
 def create_training_request(request):
     """
     AJAX endpoint to create a TrainingRequest (used by the new TMS UI).
-    - Performs validation: excludes participants already in ONGOING batches.
-    - Enforces role-based constraints:
-        BMMU: beneficiaries must be in user's block; BRPs must be empanelled in block's district.
-        DMMU: beneficiaries/trainers must be in user's district.
-        SMMU: global (no district/block enforced).
-    - If validation passes, proceeds to partner selection according to Target assigned and creates TrainingRequest.
+
+    Surgical changes:
+    - Trainer validation removed: TRAINER requests will *not* be validated for ongoing participation,
+      designation mismatch or block/district empanelment. Trainers are accepted if they exist.
+    - Beneficiary validation remains unchanged (still rejects beneficiaries in ONGOING batches).
     """
     if request.method != 'POST':
         return HttpResponseBadRequest("Only POST allowed")
@@ -129,7 +128,7 @@ def create_training_request(request):
 
     # Authoritative ongoing participants
     ongoing_ben = _get_ongoing_beneficiary_ids()
-    ongoing_tr = _get_ongoing_trainer_ids()
+    ongoing_tr = _get_ongoing_trainer_ids()  # still available for any other use
 
     # Validate participant existence & role constraints
     invalid = {'not_found': [], 'ongoing': [], 'role_mismatch': []}
@@ -176,6 +175,8 @@ def create_training_request(request):
             valid_ids.append(pid)
 
     else:  # TRAINER
+        # === SURGICAL CHANGE: remove all trainer-related validation ===
+        # - Keep only existence check (not_found). Do NOT check 'ongoing', 'designation', or role-based empanel checks.
         trainers = MasterTrainer.objects.filter(id__in=participant_ids)
         found_map = {t.id: t for t in trainers}
         for pid in participant_ids:
@@ -183,34 +184,9 @@ def create_training_request(request):
             if not t:
                 invalid['not_found'].append(pid)
                 continue
-            if pid in ongoing_tr:
-                invalid['ongoing'].append(pid)
-                continue
-            # designation check if provided
-            if designation:
-                t_desig = (getattr(t, 'designation', '') or '').upper()
-                if t_desig != designation:
-                    invalid['role_mismatch'].append({'id': pid, 'reason': f'designation mismatch (expected {designation})'})
-                    continue
-            # role-based constraints for trainers
-            if role == 'bmmu' and user_block_id:
-                # find block -> district
-                try:
-                    block_obj = Block.objects.filter(block_id=user_block_id).first()
-                    block_district_id = getattr(block_obj, 'district_id', None) or getattr(block_obj, 'district', None) if block_obj else None
-                except Exception:
-                    block_district_id = None
-                trainer_district_val = getattr(t, 'empanel_district', None) or getattr(t, 'district', None)
-                if block_district_id and str(trainer_district_val) != str(block_district_id):
-                    invalid['role_mismatch'].append({'id': pid, 'reason': 'trainer not empanelled in block district'})
-                    continue
-            elif role == 'dmmu' and user_district_id:
-                trainer_district_val = getattr(t, 'empanel_district', None) or getattr(t, 'district', None)
-                if str(trainer_district_val) != str(user_district_id):
-                    invalid['role_mismatch'].append({'id': pid, 'reason': 'trainer not in your district'})
-                    continue
-            # smmu: no restriction
+            # Accept trainer without further validation
             valid_ids.append(pid)
+        # === END SURGICAL CHANGE ===
 
     # If any invalids, return details (400)
     if invalid['not_found'] or invalid['ongoing'] or invalid['role_mismatch']:
