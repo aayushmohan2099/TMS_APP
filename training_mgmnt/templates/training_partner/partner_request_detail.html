@@ -1,0 +1,138 @@
+{# templates/training_partner/partner_request_detail.html #}
+{% extends "training_partner/base_partner.html" %}
+{% load humanize %}
+{% block title %}Training Request #{{ training_request.id }}{% endblock %}
+{% block header_title %}Training Request #{{ training_request.id }}{% endblock %}
+{% block header_subtitle %}Request for {{ training_request.training_plan.training_name }} — Assigned to {{ partner.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div>
+        <h5 class="mb-0">{{ training_request.training_plan.training_name|default:"—" }}</h5>
+        <div class="small text-muted">Theme: {{ training_request.training_plan.theme|default:"—" }}</div>
+      </div>
+      <div class="text-end">
+        <div class="small text-muted">Requested by: {% if training_request.created_by %}{{ training_request.created_by.get_full_name|default:training_request.created_by.username }}{% else %}&mdash;{% endif %}</div>
+        <div class="small mt-1">Status: <strong>{{ status }}</strong></div>
+      </div>
+    </div>
+
+    <hr>
+
+    {% if status == "REJECTED" and rejection_reason %}
+      <div class="alert alert-danger">
+        <strong>Rejected</strong>
+        <div class="small text-muted mt-1">Reason:</div>
+        <div class="mt-1">{{ rejection_reason }}</div>
+      </div>
+
+      <div class="d-flex gap-2 mb-3">
+        <form method="post" onsubmit="return confirm('Delete this Training Request? This cannot be undone.');">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="delete_request">
+          <button type="submit" class="btn btn-danger">Delete Training Request</button>
+        </form>
+
+        <form method="post" onsubmit="return confirm('Create fresh batches for this request? This will set the request status to BATCHING and redirect you to the batch creation screen.');">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="create_fresh_batches">
+          <button type="submit" class="btn btn-primary">Create Fresh Batches</button>
+        </form>
+      </div>
+    {% elif status == "BATCHING" %}
+      <div class="alert alert-info small">This request is in <strong>BATCHING</strong> — you can create batches for this request.</div>
+      <div class="mb-3">
+        <a href="{% url 'partner_view_request' training_request.id %}" class="btn btn-primary">Create Batches</a>
+      </div>
+    {% endif %}
+
+    <h6>All Batches for this request ({{ batches|length }})</h6>
+
+    {% if batches %}
+      <div class="list-group mb-3">
+        {% for item in batches %}
+          {% with b=item.batch %}
+            <div class="list-group-item">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-bold">Batch: {{ b.code|default:b.id }} — Centre: {{ item.centre.venue_name|default:"(not set)" }}</div>
+                  <div class="small text-muted">Start: {{ b.start_date|date:"Y-m-d"|default:"—" }} — End: {{ b.end_date|date:"Y-m-d"|default:"—" }}</div>
+                  <div class="small mt-1">Participants: {{ item.beneficiaries|length }} &nbsp; | Attendance days: {{ item.attendance_count }}</div>
+                </div>
+
+                <div class="text-end" style="min-width:200px;">
+                  <div class="small text-muted">Status: <strong>{{ b.status }}</strong></div>
+                  <div class="mt-2 d-flex gap-1 justify-content-end">
+                    {% if status == "BATCHING" %}
+                      <a href="{% url 'partner_view_request' training_request.id %}#batch-{{ b.id }}" class="btn btn-sm btn-outline-primary">Open in Request View</a>
+                    {% endif %}
+                    {% if status == "PENDING" %}
+                      <a href="{% url 'partner_view_request' training_request.id %}#batch-{{ b.id }}" class="btn btn-sm btn-outline-primary">Open in Request View</a>
+                    {% endif %}
+                    {% if status == "ONGOING" %}
+                      <a href="{% url 'attendance_per_batch' b.id %}" class="btn btn-sm btn-outline-secondary" target="_blank">View Attendance</a>
+                    {% endif %}  
+                    {% if status == "COMPLETED" %}
+                      <a href="{% url 'attendance_per_batch' b.id %}" class="btn btn-sm btn-outline-secondary" target="_blank">View Attendance</a>
+                    {% endif %}                                                                
+                  </div>
+                </div>
+              </div>
+
+              {# Collapsible batch details (optional expand) #}
+              <div class="mt-2 small text-muted">
+                <strong>Trainers:</strong>
+                {% if item.trainers %}
+                  {% for t in item.trainers %}
+                    {{ t.full_name|default:t }}{% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </div>
+            </div>
+          {% endwith %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-muted small mb-3">No batches created for this request yet.</div>
+      {% if status == "BATCHING" %}
+        <a href="{% url 'partner_view_request' training_request.id %}" class="btn btn-primary mb-3">Create Batches</a>
+      {% endif %}
+    {% endif %}
+
+    <hr>
+
+    <h6>Participants (preview)</h6>
+    {% if beneficiaries_preview %}
+      <div style="max-height:260px; overflow:auto;">
+        <table class="table table-sm table-bordered mb-0">
+          <thead class="table-light"><tr><th>#</th><th>Name</th><th>Mobile</th><th>Location</th></tr></thead>
+          <tbody>
+            {% for b in beneficiaries_preview %}
+              <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ b.name }}</td>
+                <td>{{ b.mobile }}</td>
+                <td class="small text-muted">{{ b.village }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted small">No participants attached to this request.</div>
+    {% endif %}
+
+    <div class="mt-3">
+      <a href="{% url 'partner_view_requests' %}" class="btn btn-outline-secondary">Back to requests list</a>
+      {% if status == "BATCHING" %}
+        <a href="{% url 'partner_view_request' training_request.id %}" class="btn btn-primary">Create Batches</a>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

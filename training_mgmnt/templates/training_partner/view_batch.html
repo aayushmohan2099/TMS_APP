@@ -1,3 +1,4 @@
+{# templates/training_partner/view_batch.html #}
 {% extends "training_partner/base_partner.html" %}
 {% load custom_tags %}
 {% block title %}Batch {{ batch.code|default:batch.id }}{% endblock %}
@@ -20,348 +21,443 @@
 
       <hr>
 
-      <!-- Beneficiaries table (select participants) -->
-      <div class="mb-3">
-        <h6>Beneficiaries (choose participants for split)</h6>
-        <p class="small text-muted">Select specific beneficiaries to include in a batch. After adding to preview these participants are reserved (removed from the list). Use Cancel Preview to restore.</p>
-        {% if beneficiaries and beneficiaries|length %}
-          <div class="table-responsive" style="max-height:320px; overflow:auto;">
-            <table class="table table-sm table-hover mb-0" id="beneficiariesTable">
-              <thead class="table-light position-sticky" style="top:0; z-index:1;">
-                <tr>
-                  <th style="width:32px;"><input type="checkbox" id="selectAllBeneficiaries" /></th>
-                  <th style="width:80px;">ID</th>
-                  <th>Name</th>
-                  <th style="width:90px;">Gender</th>
-                  <th style="width:70px;">Age</th>
-                  <th style="width:120px;">Mobile</th>
-                  <th class="text-start">Location</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for b in beneficiaries %}
-                  <tr data-ben-id-row="{{ b.id }}">
-                    <td><input class="form-check-input ben-checkbox" type="checkbox" data-ben-id="{{ b.id }}" id="ben_{{ b.id }}"></td>
-                    <td>{{ b.id }}</td>
-                    <td>{{ b.display_name }}</td>
-                    <td>{{ b.gender_display }}</td>
-                    <td>{{ b.age }}</td>
-                    <td>{{ b.mobile_display }}</td>
-                    <td class="text-start small text-muted">{{ b.village_display }}</td>
+      <div class="row">
+        <!-- Left: Block list -->
+        <div class="col-md-3">
+          <h6 class="mb-2">Blocks (pick to view participants)</h6>
+          <div id="blocksList" class="list-group" style="max-height:420px; overflow:auto;"></div>
+          <div class="small text-muted mt-2">Request block is shown first. Click a block to view its beneficiaries. You can select beneficiaries across blocks to create mixed batches.</div>
+        </div>
+
+        <!-- Right: Beneficiaries table + controls -->
+        <div class="col-md-9">
+          <div class="mb-3">
+            <h6>Beneficiaries (choose participants for split)</h6>
+            <p class="small text-muted">Select beneficiaries to include in batches. You may pick participants from multiple blocks — selections are preserved when switching blocks.</p>
+
+            <div class="table-responsive" style="max-height:360px; overflow:auto;">
+              <table class="table table-sm table-hover mb-0" id="beneficiariesTable">
+                <thead class="table-light position-sticky" style="top:0; z-index:1;">
+                  <tr>
+                    <th style="width:32px;"><input type="checkbox" id="selectAllBeneficiaries" /></th>
+                    <th style="width:80px;">ID</th>
+                    <th>Name</th>
+                    <th style="width:90px;">Gender</th>
+                    <th style="width:70px;">Age</th>
+                    <th style="width:120px;">Mobile</th>
+                    <th class="text-start">Location</th>
                   </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="mt-2 d-flex justify-content-between">
-            <div><small class="text-muted">Showing {{ beneficiaries|length }} beneficiaries</small></div>
-            <div><small class="text-muted">Selected: <span id="selectedCount">0</span></small></div>
-          </div>
-        {% else %}
-          <div class="text-muted">No beneficiaries found for this training request.</div>
-        {% endif %}
-      </div>
+                </thead>
+                <tbody id="benTableBody">
+                  {# server-side fallback rows (used if JS is disabled or BLOCKS_DATA missing) #}
+                  {% for b in batch.request.beneficiaries.all %}
+                    <tr data-ben-id-row="{{ b.id }}">
+                      <td><input class="form-check-input ben-checkbox" type="checkbox" data-ben-id="{{ b.id }}" id="ben_{{ b.id }}"></td>
+                      <td>{{ b.id }}</td>
+                      <td>{{ b.display_name|default:b.member_name|default:b.member_code }}</td>
+                      <td>{{ b.gender|default:"-" }}</td>
+                      <td>{% if b.date_of_birth %}{{ b.date_of_birth|timesince }}{% else %}-{% endif %}</td>
+                      <td>{{ b.mobile_no|default:"-" }}</td>
+                      <td class="text-start small text-muted">{{ b.village|default:"-" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
 
-      <hr>
-
-      <!-- Confirmed / Proposed centre & dates -->
-      <div class="mb-3">
-        <h6>Centre & Dates</h6>
-        <p><strong>No. of Days (Training Runtime):</strong> {{ batch.training_plan.no_of_days }}</p>
-        <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
-        <p>
-          <strong>Proposed Centre (by partner):</strong>
-          {{ batch.centre_proposed|default:"(not proposed)" }}
-          &nbsp;
-          <a class="btn btn-sm btn-outline-primary ms-2" href="{% url 'training_partner_centre_registration' %}" target="_blank">Open Centre Registration</a>
-        </p>
-        <p><strong>Start date:</strong> {{ batch.start_date|date:"Y-m-d"|default:"(not set)" }} &nbsp;
-           <strong>End date:</strong> {{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</p>
-      </div>
-
-      <hr>
-
-      <!-- Centre selection (single-centre choose) + manual-split UI -->
-      <div class="mb-3">
-        <h6>Create / Split Batches (manual)</h6>
-        <p class="small text-muted">
-          Select beneficiaries (via checkboxes), choose a single centre from the dropdown below, set a preferred start date (optional),
-          then click <strong>Add to preview</strong>. Repeat for the next batch. When all preview rows look correct click <strong>Create Batches (server)</strong>.
-        </p>
-
-        <div class="row g-2 align-items-center mb-2">
-          <div class="col-md-5">
-            <label class="form-label">Select centre for this allocation</label>
-            <select id="centreSelect" class="form-select">
-              <option value="">-- Choose centre --</option>
-              {% if partner_centres and partner_centres.exists %}
-                {% for c in partner_centres %}
-                  <option value="{{ c.id }}" data-capacity="{{ c.training_hall_capacity|default:0 }}">{{ c.venue_name|truncatechars:60 }} — capacity: {{ c.training_hall_capacity|default:"—" }}</option>
-                {% endfor %}
-              {% elif partner and partner.centres.exists %}
-                {% for c in partner.centres.all %}
-                  <option value="{{ c.id }}" data-capacity="{{ c.training_hall_capacity|default:0 }}">{{ c.venue_name|truncatechars:60 }} — capacity: {{ c.training_hall_capacity|default:"—" }}</option>
-                {% endfor %}
-              {% else %}
-                <option value="">{{ "No registered centres" }}</option>
-              {% endif %}
-            </select>
+            <div class="mt-2 d-flex justify-content-between">
+              <div><small class="text-muted">Showing <span id="shownCount">{{ batch.request.beneficiaries.count }}</span> beneficiaries</small></div>
+              <div><small class="text-muted">Selected: <span id="selectedCount">0</span></small></div>
+            </div>
           </div>
 
-          <div class="col-md-3">
-            <label class="form-label">Preferred start date</label>
-            <input type="date" class="form-control" id="preferredStart" value="{{ batch.start_date|date:'Y-m-d' }}">
+          <hr>
+
+          <!-- Centre & Dates -->
+          <div class="mb-3">
+            <h6>Centre & Dates</h6>
+            <p><strong>No. of Days (Training Runtime):</strong> {{ no_of_days }}</p>
+            <p><strong>Confirmed Centre:</strong> {{ batch.centre|default:"(not set)" }}</p>
+            <p>
+              <strong>Proposed Centre (by partner):</strong>
+              {{ batch.centre_proposed|default:"(not proposed)" }}
+              &nbsp;
+              <a class="btn btn-sm btn-outline-primary ms-2" href="{% url 'training_partner_centre_registration' %}" target="_blank">Open Centre Registration</a>
+            </p>
+            <p>
+              <strong>Start date:</strong> <span id="displayStart">{{ batch.start_date|date:"Y-m-d"|default:"(not set)" }}</span>
+              &nbsp;
+              <strong>End date:</strong> <span id="displayEnd">{{ batch.end_date|date:"Y-m-d"|default:"(not set)" }}</span>
+            </p>
           </div>
 
-          <div class="col-md-2">
-            <label class="form-label">Auto-calc days</label>
-            <input type="number" class="form-control" id="runtimeDays" value="{{ batch.training_plan.no_of_days|default:2 }}" min="1">
-          </div>
+          <hr>
 
-          <div class="col-md-2 d-grid">
-            <label class="form-label">&nbsp;</label>
-            <button id="addToPreviewBtn" class="btn btn-outline-primary">Add to preview</button>
+          <!-- Create / Split Batches controls -->
+          <div class="mb-3">
+            <h6>Create / Split Batches (manual)</h6>
+            <p class="small text-muted">
+              Select beneficiaries (via checkboxes), choose a single centre from the dropdown below, pick a start date,
+              then click <strong>Add to preview</strong>. Repeat for additional batches. When previews look correct click <strong>Create Batches (server)</strong>.
+            </p>
+
+            <div class="row g-2 align-items-center mb-2">
+              <div class="col-md-5">
+                <label class="form-label">Select centre for this allocation</label>
+                <select id="centreSelect" class="form-select">
+                  <option value="">-- Choose centre --</option>
+                  {% if partner_centres and partner_centres.exists %}
+                    {% for c in partner_centres %}
+                      <option value="{{ c.id }}" data-capacity="{{ c.training_hall_capacity|default:0 }}">{{ c.venue_name|truncatechars:60 }} — capacity: {{ c.training_hall_capacity|default:"—" }}</option>
+                    {% endfor %}
+                  {% elif partner and partner.centres.exists %}
+                    {% for c in partner.centres.all %}
+                      <option value="{{ c.id }}" data-capacity="{{ c.training_hall_capacity|default:0 }}">{{ c.venue_name|truncatechars:60 }} — capacity: {{ c.training_hall_capacity|default:"—" }}</option>
+                    {% endfor %}
+                  {% else %}
+                    <option value="">{{ "No registered centres" }}</option>
+                  {% endif %}
+                </select>
+              </div>
+
+              <div class="col-md-3">
+                <label class="form-label">Start date</label>
+                <input type="date" class="form-control" id="preferredStart" value="{{ batch.start_date|date:'Y-m-d' }}">
+              </div>
+
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Duration (days)</label>
+                <div class="form-control-plaintext">{{ no_of_days }} day{{ no_of_days|pluralize }}</div>
+              </div>
+
+              <div class="col-md-2 d-grid">
+                <label class="form-label">&nbsp;</label>
+                <button id="addToPreviewBtn" class="btn btn-outline-primary">Add to preview</button>
+              </div>
+            </div>
+
+            <!-- preview area -->
+            <div id="splitPreview" class="mt-3" style="display:none;">
+              <h6 class="mb-2">Preview: Batches to create</h6>
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered" id="previewTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width:48px;">#</th>
+                      <th>Centre</th>
+                      <th style="width:110px;">Capacity</th>
+                      <th style="width:160px;">Assigned participants</th>
+                      <th style="width:120px;">Start</th>
+                      <th style="width:120px;">End</th>
+                      <th style="width:90px;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+
+              <div class="d-flex justify-content-end gap-2 mt-2">
+                <button id="createBatchesBtn" class="btn btn-primary">Create Batches (server)</button>
+                <a href="#" id="cancelPreview" class="btn btn-outline-secondary">Cancel Preview</a>
+              </div>
+
+              <div class="mt-2 small text-muted">Once created, each preview row will become a Batch linked to this TrainingRequest.</div>
+            </div>
           </div>
         </div>
-
-        <!-- preview area -->
-        <div id="splitPreview" class="mt-3" style="display:none;">
-          <h6 class="mb-2">Preview: Batches to create</h6>
-          <div class="table-responsive">
-            <table class="table table-sm table-bordered" id="previewTable">
-              <thead class="table-light">
-                <tr><th style="width:48px;">#</th><th>Centre</th><th style="width:110px;">Capacity</th><th style="width:160px;">Assigned participants</th><th style="width:120px;">Start</th><th style="width:120px;">End</th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-
-          <div class="d-flex justify-content-end gap-2 mt-2">
-            <button id="createBatchesBtn" class="btn btn-primary">Create Batches (server)</button>
-            <a href="#" id="cancelPreview" class="btn btn-outline-secondary">Cancel Preview</a>
-          </div>
-
-          <div class="mt-2 small text-muted">Once created, each preview row will become a Batch linked to this TrainingRequest.</div>
-        </div>
       </div>
-
-      <hr>
 
     </div>
   </div>
 
-  <!-- Tiny hidden holder with beneficiary ids so JS can slice them (fallback) -->
+  <!-- embed block->beneficiaries JSON -->
   <script>
-    const ALL_BENEFICIARIES = [
-      {% if batch.request and batch.request.beneficiaries.exists %}
-        {% for ben in batch.request.beneficiaries.all %}
-          {{ ben.id }}{% if not forloop.last %}, {% endif %}
-        {% endfor %}
-      {% elif batch.beneficiaries and batch.beneficiaries.exists %}
-        {% for ben in batch.beneficiaries.all %}
-          {{ ben.id }}{% if not forloop.last %}, {% endif %}
-        {% endfor %}
-      {% endif %}
-    ];
-    {% if batch.request %}
-      const TRAINING_REQUEST_ID = {{ batch.request.id }};
-    {% else %}
-      const TRAINING_REQUEST_ID = null;
-    {% endif %}
+    // JSON from server: array of block objects: {block_id, block_name, beneficiaries: [{id, display_name, gender, age, mobile, village}]}
+    const BLOCKS_DATA = {{ beneficiaries_by_block_json|safe }};
+    const TRAINING_REQUEST_ID = {{ batch.request.id }};
+    const TRAINING_PLAN_DAYS = {{ no_of_days|default:0 }};
+
+    // Build a map block_id -> block object for quick lookup
+    const BLOCK_MAP = {};
+    (BLOCKS_DATA || []).forEach(b => { BLOCK_MAP[String(b.block_id)] = b; });
   </script>
 
-  <!-- Manual splitting logic (redirects to dashboard after success) -->
+  <!-- Manual splitting / block-switching logic -->
   <script>
     (function(){
+      // element refs
+      const blocksList = document.getElementById('blocksList');
+      const benTableBody = document.getElementById('benTableBody');
+      const shownCountEl = document.getElementById('shownCount');
+      const selectedCountEl = document.getElementById('selectedCount');
+      const selectAll = document.getElementById('selectAllBeneficiaries');
       const addBtn = document.getElementById('addToPreviewBtn');
       const previewArea = document.getElementById('splitPreview');
       const previewTableBody = document.querySelector('#previewTable tbody');
       const createBatchesBtn = document.getElementById('createBatchesBtn');
       const cancelPreview = document.getElementById('cancelPreview');
-      const runtimeDaysInput = document.getElementById('runtimeDays');
       const preferredStartInput = document.getElementById('preferredStart');
       const centreSelect = document.getElementById('centreSelect');
-      const totalParticipantsInput = document.getElementById('totalParticipants') || { value: (ALL_BENEFICIARIES.length || 0) };
-      const selectAll = document.getElementById('selectAllBeneficiaries');
-      const selectedCountEl = document.getElementById('selectedCount');
-      const beneficiariesTbody = document.querySelector('#beneficiariesTable tbody');
 
-      // maintain an array of preview rows (each row = {centre_id, centre_label, capacity, assigned_ids, start, end})
-      previewArea._previewRows = previewArea._previewRows || [];
-      // store removed rows to restore on cancel
-      previewArea._removedRows = previewArea._removedRows || [];
+      // Keep track of selected beneficiary IDs across blocks
+      const selectedIds = new Set();
+      // Keep track of removed (assigned to preview) beneficiary IDs so they do not reappear
+      const removedIds = new Set();
 
-      // helper: get ids of checked ben checkboxes
-      function getCheckedBeneficiaryIds() {
-        const nodes = Array.from(document.querySelectorAll('.ben-checkbox:checked'));
-        return nodes.map(n => parseInt(n.dataset.benId || n.getAttribute('data-ben-id')));
-      }
-      function updateSelectedCount() {
-        const cnt = getCheckedBeneficiaryIds().length;
-        selectedCountEl.textContent = String(cnt);
-      }
-      if(selectAll) {
-        selectAll.addEventListener('change', function(){
-          const checked = selectAll.checked;
-          document.querySelectorAll('.ben-checkbox').forEach(function(cb){ cb.checked = checked; });
-          updateSelectedCount();
-        });
-      }
-      document.querySelectorAll('.ben-checkbox').forEach(cb => cb.addEventListener('change', updateSelectedCount));
+      // Keep in-memory preview rows (so DOM <-> payload consistent)
+      // previewRows: [{ centre_id, centre_label, capacity, assigned_ids:[], start, end }]
+      let previewRows = [];
 
-      // helper to find beneficiary row element by id
-      function _findRowForBenId(id) {
-        return beneficiariesTbody.querySelector(`tr[data-ben-id-row="${id}"]`);
-      }
-
-      // remove rows for given IDs (store their HTML & index so we can restore)
-      function removeAssignedFromDOM(assignedIds) {
-        assignedIds = assignedIds.map(x => parseInt(x));
-        const currentRows = Array.from(beneficiariesTbody.children);
-        for(const id of assignedIds) {
-          const tr = _findRowForBenId(id);
-          if(tr) {
-            const idx = currentRows.indexOf(tr);
-            previewArea._removedRows.push({id: id, index: idx, html: tr.outerHTML});
-            tr.remove();
-          }
+      // Build blocks list UI (only blocks with at least one beneficiary)
+      function renderBlocksList() {
+        blocksList.innerHTML = '';
+        const blocks = Array.isArray(BLOCKS_DATA) ? BLOCKS_DATA : [];
+        const visibleBlocks = blocks.filter(b => Array.isArray(b.beneficiaries) && b.beneficiaries.length > 0);
+        if(visibleBlocks.length === 0) {
+          blocksList.innerHTML = '<div class="text-muted small">No blocks with participants found for this training plan.</div>';
+          // fallback: keep server-side table as-is
+          return;
         }
-        // update totals
-        totalParticipantsInput.value = String(beneficiariesTbody.querySelectorAll('.ben-checkbox').length);
-        // reset selection state
+        visibleBlocks.forEach((blk, idx) => {
+          const a = document.createElement('a');
+          a.href = '#';
+          a.className = 'list-group-item list-group-item-action';
+          a.dataset.blockId = blk.block_id;
+          a.innerHTML = `<div class="d-flex justify-content-between align-items-center">
+                          <div><strong>${blk.block_name || '(no block)'}</strong></div>
+                          <div class="small text-muted">${blk.beneficiaries.length} participants</div>
+                        </div>`;
+          a.addEventListener('click', function(ev){
+            ev.preventDefault();
+            document.querySelectorAll('#blocksList .list-group-item').forEach(x => x.classList.remove('active'));
+            a.classList.add('active');
+            renderBeneficiariesForBlock(String(blk.block_id));
+          });
+          blocksList.appendChild(a);
+        });
+        // click the first block automatically if present
+        const first = blocksList.querySelector('.list-group-item');
+        if(first) first.click();
+      }
+
+      // Render beneficiaries for a block (client-side) — excludes removedIds
+      function renderBeneficiariesForBlock(blockId) {
+        const blk = BLOCK_MAP[String(blockId)];
+        if(!blk || !Array.isArray(blk.beneficiaries)) {
+          benTableBody.innerHTML = '<tr><td colspan="7" class="text-muted small">No beneficiaries for this block.</td></tr>';
+          shownCountEl.textContent = '0';
+          return;
+        }
+        const rows = [];
+        for(const b of blk.beneficiaries) {
+          if(removedIds.has(Number(b.id))) continue;
+          const checked = selectedIds.has(Number(b.id)) ? 'checked' : '';
+          rows.push(`<tr data-ben-id-row="${b.id}">
+                       <td><input class="form-check-input ben-checkbox" type="checkbox" data-ben-id="${b.id}" id="ben_${b.id}" ${checked}></td>
+                       <td>${b.id}</td>
+                       <td>${escapeHtml(b.display_name)}</td>
+                       <td>${escapeHtml(b.gender)}</td>
+                       <td>${b.age}</td>
+                       <td>${escapeHtml(b.mobile)}</td>
+                       <td class="text-start small text-muted">${escapeHtml(b.village)}</td>
+                     </tr>`);
+        }
+        benTableBody.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="7" class="text-muted small">No beneficiaries for this block (or all have been assigned to preview).</td></tr>';
+        shownCountEl.textContent = rows.length;
+        // rebind checkbox listeners
+        document.querySelectorAll('.ben-checkbox').forEach(cb => {
+          cb.removeEventListener('change', onBenCheckboxChange);
+          cb.addEventListener('change', onBenCheckboxChange);
+        });
+        // reset selectAll based on current table
         if(selectAll) selectAll.checked = false;
-        document.querySelectorAll('.ben-checkbox').forEach(cb => cb.checked = false);
         updateSelectedCount();
       }
 
-      // restore removed rows in original order
-      function restoreRemovedRows() {
-        if(!previewArea._removedRows || !previewArea._removedRows.length) return;
-        // sort by index then insert at index or append
-        previewArea._removedRows.sort((a,b) => (a.index - b.index));
-        const children = Array.from(beneficiariesTbody.children);
-        for(const item of previewArea._removedRows) {
-          beneficiariesTbody.insertAdjacentHTML('beforeend', item.html);
-        }
-        // rebind change listeners on the restored checkboxes
-        document.querySelectorAll('.ben-checkbox').forEach(cb => {
-          cb.removeEventListener('change', updateSelectedCount);
-          cb.addEventListener('change', updateSelectedCount);
+      function onBenCheckboxChange(e){
+        const id = Number(this.dataset.benId || this.getAttribute('data-ben-id'));
+        if(this.checked) selectedIds.add(id); else selectedIds.delete(id);
+        updateSelectedCount();
+      }
+
+      function updateSelectedCount(){
+        selectedCountEl.textContent = String(selectedIds.size);
+      }
+
+      // escapeHtml helper
+      function escapeHtml(s){
+        if(s === null || s === undefined) return '';
+        return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+      }
+
+      if(selectAll) {
+        selectAll.addEventListener('change', function(){
+          const checked = selectAll.checked;
+          document.querySelectorAll('.ben-checkbox').forEach(cb => {
+            cb.checked = checked;
+            const id = Number(cb.dataset.benId || cb.getAttribute('data-ben-id'));
+            if(checked) selectedIds.add(id); else selectedIds.delete(id);
+          });
+          updateSelectedCount();
         });
-        // clear removed list
-        previewArea._removedRows = [];
-        // update totals
-        totalParticipantsInput.value = String(beneficiariesTbody.querySelectorAll('.ben-checkbox').length);
-        selectedCountEl.textContent = String(getCheckedBeneficiaryIds().length);
       }
 
-      // compute end date (add days)
-      function addDays(iso, days) {
-        if(!iso) return '';
-        const d = new Date(iso);
-        d.setDate(d.getDate() + days);
-        return d.toISOString().slice(0,10);
+      // helper: re-render preview table from previewRows
+      function renderPreviewTable() {
+        previewTableBody.innerHTML = '';
+        previewRows.forEach((row, idx) => {
+          const tr = document.createElement('tr');
+          tr.dataset.previewIndex = String(idx);
+          tr.dataset.assignedIds = JSON.stringify(row.assigned_ids || []);
+          tr.dataset.centreId = String(row.centre_id || '');
+          tr.dataset.start = row.start || '';
+          tr.innerHTML = `<td>${idx + 1}</td>
+                          <td>${escapeHtml(row.centre_label || ('Centre #' + row.centre_id))} <small class="text-muted">#${row.centre_id}</small></td>
+                          <td>${row.capacity || '-'}</td>
+                          <td>${(row.assigned_ids || []).length}</td>
+                          <td>${row.start || '-'}</td>
+                          <td>${row.end || '-'}</td>
+                          <td><button class="btn btn-sm btn-outline-danger preview-remove-btn">Remove</button></td>`;
+          previewTableBody.appendChild(tr);
+        });
+
+        // bind remove handlers
+        document.querySelectorAll('.preview-remove-btn').forEach(btn => {
+          btn.removeEventListener('click', onRemovePreviewRow);
+          btn.addEventListener('click', onRemovePreviewRow);
+        });
+
+        // show or hide preview area
+        previewArea.style.display = previewRows.length ? 'block' : 'none';
       }
 
-      // add selected participants + selected centre as one preview row
+      function onRemovePreviewRow(ev) {
+        ev.preventDefault();
+        const tr = ev.currentTarget.closest('tr');
+        if(!tr) return;
+        const idx = Number(tr.dataset.previewIndex);
+        const row = previewRows[idx];
+        if(!row) return;
+
+        // restore beneficiaries from this preview row to the UI (remove from removedIds)
+        for(const bid of (row.assigned_ids || [])) {
+          removedIds.delete(Number(bid));
+        }
+
+        // remove the preview row
+        previewRows.splice(idx, 1);
+        renderPreviewTable();
+
+        // re-render currently active block to show restored rows
+        const active = blocksList.querySelector('.list-group-item.active');
+        if(active) {
+          renderBeneficiariesForBlock(String(active.dataset.blockId));
+        } else {
+          // pick first
+          const first = blocksList.querySelector('.list-group-item');
+          if(first) renderBeneficiariesForBlock(String(first.dataset.blockId));
+        }
+      }
+
+      // Add to preview: create preview row and remove assigned beneficiaries from UI & track removedIds
       addBtn?.addEventListener('click', function(ev){
         ev.preventDefault();
-        const selectedCentreId = centreSelect.value || null;
-        if(!selectedCentreId) {
-          alert('Please choose a centre for this allocation.');
-          return;
-        }
-        const centreOption = centreSelect.querySelector(`option[value="${selectedCentreId}"]`);
-        const capacity = centreOption ? parseInt(centreOption.dataset.capacity||0,10) : 0;
-        const centreLabel = centreOption ? centreOption.textContent.trim() : ('Centre #' + selectedCentreId);
+        const centreId = centreSelect.value || null;
+        if(!centreId) { alert('Please choose a centre for this allocation.'); return; }
 
-        const selectedBenIds = getCheckedBeneficiaryIds();
-        if(!selectedBenIds || selectedBenIds.length === 0) {
+        if(selectedIds.size === 0){
           alert('Please select one or more beneficiaries to add to the preview.');
           return;
         }
 
-        // compute start/end
-        const days = parseInt(runtimeDaysInput.value||2,10) || 2;
         const startDate = preferredStartInput.value || '';
-        const endDate = startDate ? addDays(startDate, days) : '';
+        if(!startDate){ if(!confirm('No start date selected. Continue without start date?')) return; }
 
-        // create preview row object
-        const rowObj = {
-          centre_id: parseInt(selectedCentreId),
+        const days = parseInt(TRAINING_PLAN_DAYS, 10) || 0;
+        let endDate = '';
+        if(startDate && days) {
+          // your server computes end_date inclusive using days-1; front-end shows start + (days-1)
+          const d = new Date(startDate);
+          d.setDate(d.getDate() + (days - 1));
+          endDate = d.toISOString().slice(0,10);
+        }
+
+        // get centre label & capacity
+        const centreOption = centreSelect.querySelector(`option[value="${centreId}"]`);
+        const capacity = centreOption ? parseInt(centreOption.dataset.capacity||0,10) : 0;
+        const centreLabel = centreOption ? centreOption.textContent.trim() : ('Centre #' + centreId);
+
+        // build assigned list (numbers)
+        const assigned = Array.from(selectedIds).map(x => Number(x));
+
+        // If capacity exists, trim assigned to capacity
+        const assigned_trimmed = (capacity && assigned.length > capacity) ? assigned.slice(0, capacity) : assigned;
+
+        // push to previewRows
+        previewRows.push({
+          centre_id: Number(centreId),
           centre_label: centreLabel,
           capacity: capacity,
-          assigned_ids: selectedBenIds.slice(),
-          assigned_count: selectedBenIds.length,
+          assigned_ids: assigned_trimmed.slice(),
+          assigned_count: assigned_trimmed.length,
           start: startDate,
           end: endDate
-        };
+        });
 
-        // append to in-memory preview array
-        previewArea._previewRows.push(rowObj);
+        // mark assigned beneficiaries as removed and clear them from current table & selected set
+        for(const id of assigned_trimmed){
+          removedIds.add(Number(id));
+          selectedIds.delete(Number(id));
+          // remove any visible row with this ben id in current DOM
+          const rowEl = benTableBody.querySelector(`tr[data-ben-id-row="${id}"]`);
+          if(rowEl) rowEl.remove();
+        }
 
-        // render new row in preview table
-        const idx = previewArea._previewRows.length;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${idx}</td>
-                        <td>${rowObj.centre_label} <small class="text-muted">#${rowObj.centre_id}</small></td>
-                        <td>${rowObj.capacity || '-'}</td>
-                        <td>${rowObj.assigned_count}</td>
-                        <td>${rowObj.start || '-'}</td>
-                        <td>${rowObj.end || '-'}</td>`;
-        tr.dataset.assignedIds = JSON.stringify(rowObj.assigned_ids);
-        tr.dataset.centreId = rowObj.centre_id;
-        tr.dataset.start = rowObj.start;
-        previewTableBody.appendChild(tr);
-
-        // Remove these assigned beneficiaries from the visible list
-        removeAssignedFromDOM(selectedBenIds);
-
-        // show preview area
-        previewArea.style.display = 'block';
+        // update counts and render preview
+        updateSelectedCount();
+        shownCountEl.textContent = benTableBody.children.length || 0;
+        renderPreviewTable();
+        // scroll preview into view
         previewArea.scrollIntoView({behavior:'smooth'});
       });
 
-      // Cancel: restore removed beneficiaries and clear preview rows
-      cancelPreview?.addEventListener('click', function(e){
-        e.preventDefault();
-        restoreRemovedRows();
+      // Cancel preview: restore removedIds (only in-memory restore to allow re-render)
+      cancelPreview?.addEventListener('click', function(ev){
+        ev.preventDefault();
+        if(!confirm('Cancel preview and restore all participants?')) return;
+        // clear removed ids; clear preview rows
+        removedIds.clear();
+        selectedIds.clear();
+        previewRows = [];
         previewTableBody.innerHTML = '';
-        previewArea._previewRows = [];
         previewArea.style.display = 'none';
+        // re-render active block (the active item in blocksList)
+        const active = blocksList.querySelector('.list-group-item.active');
+        if(active) {
+          renderBeneficiariesForBlock(String(active.dataset.blockId));
+        } else {
+          // fallback: pick first block
+          const first = blocksList.querySelector('.list-group-item');
+          if(first) renderBeneficiariesForBlock(first.dataset.blockId);
+        }
+        updateSelectedCount();
       });
 
-      // csrf helper
-      function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-          const cookies = document.cookie.split(';');
-          for (let i = 0; i < cookies.length; i++) {
-            const c = cookies[i].trim();
-            if (c.substring(0, name.length + 1) === (name + '=')) {
-              cookieValue = decodeURIComponent(c.substring(name.length + 1));
-              break;
-            }
+      // Create Batches (server)
+      createBatchesBtn?.addEventListener('click', async function(){
+        if(previewRows.length === 0){ alert('No preview rows to create. Add one or more allocations first.'); return; }
+
+        // Validate every preview row has a start date (server requires start per centre)
+        for(const [i, r] of previewRows.entries()) {
+          if(!r.start) {
+            if(!confirm(`Preview row ${i+1} has no start date. Continue without start?`)) return;
           }
         }
-        return cookieValue;
-      }
 
-      // Create Batches: send the preview rows as centres payload
-      createBatchesBtn?.addEventListener('click', async function(){
-        if(!previewArea._previewRows || !previewArea._previewRows.length) {
-          alert('No preview rows to create. Add one or more allocations first.');
-          return;
-        }
-        if(!TRAINING_REQUEST_ID) {
-          alert('Training request id not available. Cannot create batches.');
-          return;
-        }
-
-        // Build payload
-        const centresPayload = previewArea._previewRows.map(r => ({
-          centre_id: r.centre_id,
-          capacity: r.capacity,
+        // Build centresPayload directly from previewRows
+        const centresPayload = previewRows.map(r => ({
+          centre_id: Number(r.centre_id) || null,
+          capacity: Number(r.capacity || 0),
           start: r.start || null,
           beneficiaries: r.assigned_ids || []
         }));
@@ -371,6 +467,21 @@
           centres: centresPayload
         };
 
+        // csrf helper
+        function getCookie(name) {
+          let cookieValue = null;
+          if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+              const c = cookies[i].trim();
+              if (c.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(c.substring(name.length + 1));
+                break;
+              }
+            }
+          }
+          return cookieValue;
+        }
         const csrftoken = getCookie('csrftoken');
 
         try {
@@ -387,18 +498,32 @@
             body: JSON.stringify(payload)
           });
           const data = await resp.json();
-          if(!resp.ok || !data.ok) {
+          if(!resp.ok || !data.ok){
+            // show server-provided errors if any
             const msg = data.error || data.message || JSON.stringify(data);
-            alert('Failed to create batches: ' + msg);
+            let details = msg;
+            if(data.errors && Array.isArray(data.errors) && data.errors.length) {
+              details += '\nDetails:\n' + data.errors.map(e => (e.row !== undefined ? `row ${e.row + 1}: ${e.error}` : e.error)).join('\n');
+            }
+            alert('Failed to create batches: ' + details);
             console.error('Create batches error', data);
             return;
           }
 
           const created = data.created || [];
-          alert(`Created ${created.length} batches successfully.`);
+          const errors = data.errors || [];
+          // If created count differs from previewRows length inform user of partial success
+          if(created.length !== previewRows.length) {
+            let msg = `Created ${created.length} / ${previewRows.length} batches successfully.`;
+            if(errors.length) {
+              msg += '\nSome rows had problems:\n' + errors.map(e => (e.row !== undefined ? `Row ${e.row+1}: ${e.error}` : e.error)).join('\n');
+            }
+            alert(msg);
+          } else {
+            alert(`Created ${created.length} batches successfully.`);
+          }
 
           // Redirect to TP dashboard so the TrainingRequest disappears from requests list.
-          // Uses the standard partner dashboard path (adjust if your site uses a different path).
           window.location.href = "/bmmu/partner/";
         } catch (err) {
           console.error(err);
@@ -406,24 +531,16 @@
         }
       });
 
-      // small UX: collapse placeholder when no submissions
-      document.querySelectorAll('.collapse').forEach(function(el){
-        el.addEventListener('shown.bs.collapse', function(e){
-          const table = el.querySelector('table tbody');
-          if(table && table.children.length === 0){
-            const cardBody = el.querySelector('.card-body');
-            if(cardBody && !cardBody.querySelector('.no-submissions')) {
-              const no = document.createElement('div');
-              no.className = 'no-submissions text-muted small';
-              no.textContent = 'No submissions for this centre.';
-              cardBody.appendChild(no);
-            }
-          } else {
-            const placeholder = el.querySelector('.no-submissions');
-            if(placeholder) placeholder.remove();
-          }
-        });
-      });
+      // date helper (used to compute end when showing preview)
+      function addDays(iso, days) {
+        if(!iso) return '';
+        const d = new Date(iso);
+        d.setDate(d.getDate() + days);
+        return d.toISOString().slice(0,10);
+      }
+
+      // initialize list
+      renderBlocksList();
 
     })();
   </script>

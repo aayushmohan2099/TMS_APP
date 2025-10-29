@@ -44,6 +44,7 @@ urlpatterns = [
     path("partner/propose_dates/", views.partner_propose_dates, name="partner_propose_dates"),
     path('partner/requests/', views.partner_view_requests, name='partner_view_requests'),
     path('partner/request/<int:request_id>/', views.partner_view_request, name='partner_view_request'),
+    path('partner/request/<int:request_id>/detail/', views.partner_request_page, name='partner_request_detail_page'),
     path('bmmu/partner/create_batches/<int:request_id>/', views.partner_create_batches, name='partner_create_batches'),
     path("partner/batch/<int:batch_id>/upload_attendance/", views.partner_upload_attendance, name="partner_upload_attendance"),
     path("partner/batch/<int:batch_id>/upload_media/", views.partner_upload_media, name="partner_upload_media"),

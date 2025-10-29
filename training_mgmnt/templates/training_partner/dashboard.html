@@ -83,10 +83,7 @@
                   <div class="small text-muted">Requested beneficiaries: {{ req.beneficiary_registrations.count|default:req.beneficiaries.count }}</div>
                 </div>
                 <div class="d-flex flex-column align-items-end gap-2">
-                  <a href="{% url 'partner_view_request' req.id %}" class="btn btn-sm btn-outline-primary">Open Request</a>
-                  {% if req.partner_id == partner.id or not req.partner_id %}
-                    <a href="{% url 'partner_view_request' req.id %}" class="btn btn-sm btn-primary">Create Batches</a>
-                  {% endif %}
+                  <a href="{% url 'partner_view_request' req.id %}" class="btn btn-sm btn-outline-primary"><i class="fa fa-eye"></i></a>
                 </div>
               </li>
             {% empty %}

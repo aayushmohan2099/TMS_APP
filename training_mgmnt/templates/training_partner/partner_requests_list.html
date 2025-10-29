@@ -7,12 +7,42 @@
 {% block content %}
 <div class="card">
   <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h5 class="mb-0">Assigned Training Requests</h5>
-      <form method="get" class="d-flex">
-        <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm me-2" placeholder="Search by ID or training name">
-        <button class="btn btn-sm btn-outline-primary">Search</button>
-      </form>
+    <!-- Filters row -->
+    <div class="row g-2 align-items-center mb-3">
+      <div class="col-auto">
+        <label class="form-label small mb-1">Theme</label>
+        <select id="filterTheme" class="form-select form-select-sm">
+          <option value="">All themes</option>
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label small mb-1">Module (Training)</label>
+        <select id="filterModule" name="module" class="form-select form-select-sm">
+          <option value="">All modules</option>
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label small mb-1">Status</label>
+        <select id="filterStatus" name="status" class="form-select form-select-sm">
+          <option value="">All</option>
+          <option value="BATCHING">Batching</option>
+          <option value="PENDING">Pending</option>
+          <option value="ONGOING">Ongoing</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="REJECTED">Rejected</option>
+        </select>
+      </div>
+
+      <div class="col">
+        <label class="form-label small mb-1">Search</label>
+        <div class="input-group input-group-sm">
+          <input id="qInput" type="search" class="form-control" placeholder="Search by ID or training name" value="{{ q }}">
+          <button id="applyFiltersBtn" class="btn btn-outline-primary btn-flat btn-sm">Apply</button>
+          <a id="clearFiltersBtn" class="btn btn-outline-secondary btn-flat btn-sm" href="{% url 'partner_view_requests' %}">Reset</a>
+        </div>
+      </div>
     </div>
 
     {% if rows %}
@@ -21,29 +51,34 @@
           <thead class="table-light">
             <tr>
               <th style="width:90px;">Request</th>
-              <th>Training Plan</th>
-              <th style="width:160px;">Applicable for</th>
-              <th style="width:180px;">Created by</th>
+              <th>Created by</th>
+              <th style="width:140px;">Block</th>
+              <th style="width:120px;">No. of Participants sent</th>
               <th style="width:120px;">Status</th>
               <th style="width:160px;">Last updated</th>
+              <th style="width:150px;">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="requestsBody">
             {% for r in rows %}
-              <tr>
+              <tr data-request-id="{{ r.id }}" data-training-name="{{ r.training_plan|lower }}" data-theme="">
                 <td>
                   <div><strong>#{{ r.id }}</strong></div>
-                  {% if r.code %}<small class="text-muted">{{ r.code }}</small>{% endif %}
                 </td>
-                <td>{{ r.training_plan }}</td>
-                <td>{{ r.applicable }}</td>
                 <td>{{ r.created_by }}</td>
+                <td>{{ r.block }}</td>
+                <td>{{ r.participants_sent }}</td>
                 <td>
-                  <span class="badge bg-{% if r.status|lower == 'pending' or r.status|lower == 'pending approval' %}warning{% elif r.status|lower == 'ongoing' %}success{% elif r.status|lower == 'completed' %}secondary{% else %}secondary{% endif %}">
+                  <span class="badge bg-{% if r.status|lower == 'pending' or r.status|lower == 'pending approval' %}warning{% elif r.status|lower == 'ongoing' %}success{% elif r.status|lower == 'completed' %}secondary{% elif r.status|lower == 'rejected' %}danger{% else %}secondary{% endif %}">
                     {{ r.status|title }}
                   </span>
                 </td>
                 <td><small class="text-muted">{{ r.updated|default:"—" }}</small></td>
+                <td>
+                  <div class="d-flex gap-1">
+                    <a href="{% url 'partner_request_detail_page' r.id %}" class="btn btn-sm btn-outline-secondary"><i class="fa fa-eye"></i></a>
+                  </div>
+                </td>
               </tr>
             {% endfor %}
           </tbody>
@@ -83,4 +118,108 @@
     </div>
   </div>
 </div>
+
+<!-- client data and small UI script (no modal/AJAX) -->
+<script>
+  (function(){
+    // parse modules map and themes passed by view context
+    const THEMES = {{ themes_json|default:"[]"|safe }};
+    const MODULES_MAP = {{ modules_map_json|default:"{}"|safe }};
+
+    // element refs
+    const themeSel = document.getElementById('filterTheme');
+    const moduleSel = document.getElementById('filterModule');
+    const statusSel = document.getElementById('filterStatus');
+    const qInput = document.getElementById('qInput');
+    const applyBtn = document.getElementById('applyFiltersBtn');
+
+    // populate theme select
+    function populateThemes() {
+      // ensure base "All themes" is present already in template
+      THEMES.forEach(t => {
+        if(!t) return;
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.text = t;
+        themeSel.appendChild(opt);
+      });
+    }
+
+    function populateModulesForTheme(themeVal) {
+      moduleSel.innerHTML = '';
+      const opAll = document.createElement('option'); opAll.value=''; opAll.text='All modules'; moduleSel.appendChild(opAll);
+
+      const mods = MODULES_MAP[themeVal] || MODULES_MAP[''] || [];
+      mods.forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.id;
+        o.text = m.name;
+        moduleSel.appendChild(o);
+      });
+
+      {% if selected_module %}
+        try { moduleSel.value = "{{ selected_module }}"; } catch(e) {}
+      {% endif %}
+    }
+
+    // Read status from server-selected context if present
+    {% if status_filter %}
+      const initialStatus = "{{ status_filter }}";
+    {% else %}
+      const initialStatus = "";
+    {% endif %}
+
+    // initialize
+    try {
+      populateThemes();
+
+      {% if selected_theme %}
+        try { themeSel.value = "{{ selected_theme|escapejs }}"; } catch(e) {}
+      {% endif %}
+
+      // set status select if the server passed one
+      try { if(initialStatus) statusSel.value = initialStatus; } catch(e) {}
+
+      populateModulesForTheme(themeSel.value || '');
+
+      themeSel.addEventListener('change', function(){ populateModulesForTheme(this.value || ''); });
+
+      applyBtn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const params = new URLSearchParams(window.location.search);
+
+        const qv = (qInput.value||'').trim();
+        if(qv) params.set('q', qv); else params.delete('q');
+
+        const tv = (themeSel.value||'').trim();
+        if(tv) params.set('theme', tv); else params.delete('theme');
+
+        const mv = (moduleSel.value||'').trim();
+        if(mv) params.set('module', mv); else params.delete('module');
+
+        const sv = (statusSel.value||'').trim();
+        if(sv) params.set('status', sv); else params.delete('status');
+
+        params.delete('page'); // reset to first page on filter change
+        const qs = params.toString();
+        window.location.search = qs ? ('?' + qs) : '';
+      });
+
+      // wire create-batches buttons to correct url with request id
+      document.querySelectorAll('.create-batches-btn').forEach(btn => {
+        btn.addEventListener('click', function(ev){
+          ev.preventDefault();
+          const reqId = this.dataset.requestId;
+          if(!reqId) return;
+          const urlTemplate = this.getAttribute('href');
+          const finalUrl = urlTemplate.replace(/0(\/)?$/, reqId + '$1');
+          window.location.href = finalUrl;
+        });
+      });
+
+    } catch(e){
+      console.error('partner_requests_list init error', e);
+    }
+  })();
+</script>
 {% endblock %}

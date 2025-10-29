@@ -34,7 +34,6 @@
           <th>Training</th>
           <th>Theme</th>
           <th>Level</th>
-          <th>Requested by</th>
           <th>Beneficiaries</th>
           <th>Status</th>
           <th>Action</th>
@@ -48,13 +47,6 @@
               <td>{{ tr.training_plan.training_name }}</td>
               <td>{{ tr.training_plan.theme }}</td>
               <td>{{ tr.level }}</td>
-              <td>
-                {% if tr.created_by %}
-                  {{ tr.created_by.get_full_name|default:tr.created_by.username }}
-                {% else %}
-                  &mdash;
-                {% endif %}
-              </td>
               <td>{{ tr.beneficiaries.count }}</td>
               <td>
                 {% if status == "BATCHING" %}

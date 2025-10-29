@@ -167,7 +167,7 @@
                                   <td>{{ p.member_name|default:"—" }}</td>
                                   <td>{% if p.date_of_birth %}{% with d=p.date_of_birth %}{{ d.year|default:"" }}{% endwith %}{% else %}&mdash;{% endif %}</td>
                                   <td>{{ p.mobile_no|default:"—" }}</td>
-                                  <td class="small text-muted">{% if p.village %}{{ p.village }}{% else %}{{ p.display_location|default:"-" }}{% endif %}</td>
+                                  <td class="small text-muted">{% if p.village %}{{ p.block }}{{" , "}}{{ p.gram_panchayat }}{{" , "}}{{ p.village }}{% else %}{{ p.display_location|default:"-" }}{% endif %}</td>
                                 </tr>
                               {% endfor %}
                             </tbody>
