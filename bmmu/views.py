@@ -24,7 +24,7 @@ from .resources import UserResource, BeneficiaryResource, TrainingPlanResource, 
 from .utils import export_blueprint
 from .forms import *
 
-from django.db.models import Q, F
+from django.db.models import Q, F, Count
 
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
@@ -38,6 +38,8 @@ from django.db.utils import OperationalError
 from django.core.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from zoneinfo import ZoneInfo
+from urllib.parse import unquote, unquote_plus
+
 
 logger = logging.getLogger(__name__)
 
@@ -297,8 +299,8 @@ def load_app_content(request, app_name):
     AJAX loader for app fragments inside the wrapper dashboard.
 
     For 'tms' this returns the same rich context as training_program_management,
-    so /dashboard/load/tms/ (used by the dashboard sidebar) will populate
-    SERVER_TRAINERS / SERVER_TRAINERS_MAP / SERVER_BATCHES etc.
+    so /dashboard/load/tms/ (used by the dashboard sidebar) will populate the
+    same SERVER_* variables as training_program_management.
     """
     role = getattr(request.user, "role", "").lower()
 
@@ -346,12 +348,16 @@ def load_app_content(request, app_name):
         trainers = []
         trainers_map = {}
         batches = []
+        blocks_list = []
+        user_block_id = None
+        user_district_id = None
+        user_role = role or ''
+
         try:
             # themes distinct
             themes_qs = TrainingPlan.objects.values_list('theme', flat=True).distinct()
             themes = [t for t in themes_qs if t]
 
-            # modules -> use TrainingPlan.id as module id (client expects id)
             tp_qs = TrainingPlan.objects.all().only('id', 'theme', 'training_name', 'no_of_days')[:2000]
             for tp in tp_qs:
                 th = tp.theme or ''
@@ -362,39 +368,116 @@ def load_app_content(request, app_name):
                 }
                 modules_map.setdefault(th, []).append(mod_entry)
 
-            # partners
             partners_qs = TrainingPartner.objects.all()[:200]
             partners = [{'id': p.id, 'name': p.name} for p in partners_qs]
 
-            # beneficiaries
-            ben_qs = Beneficiary.objects.all()[:500]
+            # compute ongoing participants
+            ongoing_beneficiary_ids = set()
+            ongoing_trainer_ids = set()
+            try:
+                ongoing_beneficiary_ids = set(
+                    BatchBeneficiary.objects.filter(batch__status='ONGOING').values_list('beneficiary_id', flat=True)
+                )
+            except Exception:
+                try:
+                    ongoing_beneficiary_ids = set(
+                        Batch.objects.filter(status='ONGOING').values_list('batch_beneficiaries__beneficiary_id', flat=True)
+                    )
+                except Exception:
+                    ongoing_beneficiary_ids = set()
+
+            try:
+                ongoing_trainer_ids = set(
+                    TrainerBatchParticipation.objects.filter(batch__status='ONGOING').values_list('trainer_id', flat=True)
+                )
+            except Exception:
+                try:
+                    ongoing_trainer_ids = set(
+                        Batch.objects.filter(status='ONGOING').values_list('trainerparticipations__trainer_id', flat=True)
+                    )
+                except Exception:
+                    ongoing_trainer_ids = set()
+
+            # prepare blocks list
+            blocks_qs = Block.objects.all().only('block_id', 'block_name_en', 'is_aspirational', 'district_id')[:2000]
+            blocks_list = [
+                {'id': b.block_id, 'name': b.block_name_en or str(b.block_id), 'is_aspirational': bool(b.is_aspirational), 'district_id': getattr(b, 'district_id', None)}
+                for b in blocks_qs
+            ]
+
+            # determine user assignments
+            try:
+                if role == 'bmmu':
+                    bmmu_assign = getattr(request.user, 'bmmu_block_assignment', None)
+                    if bmmu_assign and getattr(bmmu_assign, 'block', None):
+                        user_block_id = getattr(bmmu_assign.block, 'block_id', None)
+                        user_district_id = getattr(bmmu_assign.block, 'district_id', None) or getattr(bmmu_assign.block, 'district_id', None)
+                elif role == 'dmmu':
+                    dmmu_assign = getattr(request.user, 'dmmu_district_assignment', None)
+                    if dmmu_assign and getattr(dmmu_assign, 'district', None):
+                        user_district_id = getattr(dmmu_assign.district, 'district_id', None) or getattr(dmmu_assign.district, 'id', None)
+            except Exception:
+                user_block_id = user_block_id or None
+                user_district_id = user_district_id or None
+
+            # beneficiaries: apply role filters and exclude ongoing
+            ben_qs = Beneficiary.objects.all()
+            if role == 'bmmu' and user_block_id:
+                ben_qs = ben_qs.filter(block__block_id=user_block_id)
+            elif role == 'dmmu' and user_district_id:
+                ben_qs = ben_qs.filter(district__district_id=user_district_id)
+
+            if ongoing_beneficiary_ids:
+                ben_qs = ben_qs.exclude(id__in=ongoing_beneficiary_ids)
+
+            ben_qs = ben_qs[:500]
             beneficiaries = [
                 {
                     'id': b.id,
                     'member_name': getattr(b, 'member_name', '') or str(b),
                     'shg_name': getattr(b, 'shg_name', '') or '',
                     'village': getattr(b, 'village', '') or '',
-                    'district': getattr(b, 'district', '') or '',
+                    'block_id': getattr(b.block, 'block_id', None) if getattr(b, 'block', None) else None,
+                    'block_name': getattr(b.block, 'block_name_en', '') if getattr(b, 'block', None) else '',
+                    'district': getattr(b, 'district', ' ') if getattr(b, 'district', None) else '',
                     'mobile': getattr(b, 'mobile_no', '') or getattr(b, 'mobile', '') or '',
                     'category': getattr(b, 'social_category', '') or ''
                 } for b in ben_qs
             ]
 
-            # trainers (MasterTrainer)
-            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')[:1000]
+            # trainers
+            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')
+            if role == 'bmmu' and user_block_id:
+                try:
+                    block_obj = Block.objects.filter(block_id=user_block_id).first()
+                    brp_district_id = getattr(block_obj, 'district_id', None) if block_obj else None
+                    if brp_district_id:
+                        mt_qs = mt_qs.filter(designation='BRP').filter(empanel_district=str(brp_district_id))
+                    else:
+                        mt_qs = mt_qs.filter(designation='BRP')
+                except Exception:
+                    mt_qs = mt_qs.filter(designation='BRP')
+            elif role == 'dmmu' and user_district_id:
+                mt_qs = mt_qs.filter(empanel_district=str(user_district_id))
+            elif role == 'smmu':
+                mt_qs = mt_qs
+
+            if ongoing_trainer_ids:
+                mt_qs = mt_qs.exclude(id__in=ongoing_trainer_ids)
+
+            mt_qs = mt_qs[:1000]
             trainers = []
             for t in mt_qs:
-                # get latest certificate_number (prefer issued_on then id)
                 cert_num = ''
-                # certificates related_name is 'certificates' per your model
                 latest = None
                 try:
-                    # attempt to find the latest using issued_on then id
                     latest = next(iter(sorted(t.certificates.all(), key=lambda c: ((c.issued_on or ''), c.id), reverse=True)), None)
                 except Exception:
-                    # fallback: use queryset ordering
-                    latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
-                    cert_num = latest_q.first() or ''
+                    try:
+                        latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
+                        cert_num = latest_q.first() or ''
+                    except Exception:
+                        cert_num = ''
                 else:
                     if latest:
                         cert_num = latest.certificate_number or ''
@@ -403,23 +486,21 @@ def load_app_content(request, app_name):
                     'id': t.id,
                     'full_name': t.full_name,
                     'certificate_number': cert_num,
-                    'skills': getattr(t, 'skills', '') or ''
+                    'skills': getattr(t, 'skills', '') or '',
+                    'designation': (t.designation or '').upper(),
+                    'mobile': getattr(t, 'mobile_no', '') or ''
                 })
 
-            # trainers_map: explicit MasterTrainerExpertise if available
+            # trainers_map fallback by skills
             try:
-                # Import locally to avoid hard import error if model isn't added everywhere
-                from .models import MasterTrainerExpertise
                 for e in MasterTrainerExpertise.objects.select_related('trainer', 'training_plan').all():
                     tp_id = e.training_plan_id
                     trainers_map.setdefault(tp_id, [])
                     if e.trainer_id not in trainers_map[tp_id]:
                         trainers_map[tp_id].append(e.trainer_id)
             except Exception:
-                # Model may not exist or not populated — ignore and fallback to skill matching
                 pass
 
-            # Build quick tokens for skills matching
             trainer_skill_tokens = {}
             for t in mt_qs:
                 tokens = set()
@@ -428,7 +509,6 @@ def load_app_content(request, app_name):
                     tokens.add(tok)
                 trainer_skill_tokens[t.id] = tokens
 
-            # Fallback: match trainers whose token intersects training name/theme tokens
             for tp in tp_qs:
                 tp_id = tp.id
                 trainers_map.setdefault(tp_id, [])
@@ -439,7 +519,7 @@ def load_app_content(request, app_name):
                             if t_id not in trainers_map[tp_id]:
                                 trainers_map[tp_id].append(t_id)
 
-            # Live batches: ONGOING / PENDING if present otherwise recent
+            # batches
             batch_status_choices = []
             try:
                 batch_status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
@@ -447,16 +527,12 @@ def load_app_content(request, app_name):
                 batch_status_choices = []
             statuses_of_interest = [s for s in ('ONGOING', 'PENDING') if s in batch_status_choices]
 
-            # select related only on fields that actually exist on Batch
-            # Batch has 'request' and 'centre' FKs; training_plan and partner live on request
             base_qs = Batch.objects.select_related('request', 'centre')
-
             if statuses_of_interest:
                 batch_qs = base_qs.filter(status__in=statuses_of_interest)[:200]
             else:
                 batch_qs = base_qs.order_by('-created_at')[:50]
 
-            # prefetch the training_plan and partner via request to avoid extra queries
             batch_qs = batch_qs.prefetch_related('request__training_plan', 'request__partner')
 
             for b in batch_qs:
@@ -490,6 +566,12 @@ def load_app_content(request, app_name):
             'trainers_json': json.dumps(trainers, default=str),
             'trainers_map_json': json.dumps(trainers_map, default=str),
             'batches_json': json.dumps(batches, default=str),
+            'blocks_json': json.dumps(blocks_list, default=str),
+            'user_role': json.dumps(user_role or '', default=str),
+            'user_block_id': json.dumps(user_block_id or None, default=str),
+            'user_district_id': json.dumps(user_district_id or None, default=str),
+            'ongoing_beneficiaries_json': json.dumps(list(ongoing_beneficiary_ids), default=str),
+            'ongoing_trainers_json': json.dumps(list(ongoing_trainer_ids), default=str),
         }
         html = render_to_string(app_config["template"], context, request=request)
         return HttpResponse(html)
@@ -498,6 +580,300 @@ def load_app_content(request, app_name):
     context = {"role": role}
     html = render_to_string(app_config["template"], context, request=request)
     return HttpResponse(html)
+
+
+
+@login_required
+def bmmu_trainings_list(request):
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    assigned_block = None
+    try:
+        assignment = BmmuBlockAssignment.objects.filter(user=request.user).select_related('block').first()
+        if assignment:
+            assigned_block = assignment.block
+    except Exception:
+        assigned_block = None
+
+    qs = TrainingRequest.objects.none()
+    try:
+        # Build base qs depending on assigned_block (same logic as before)
+        if assigned_block:
+            try:
+                if request.user:
+                    qs_block = TrainingRequest.objects.filter(level__iexact='BLOCK', created_by=request.user)
+                else:
+                    qs_block = TrainingRequest.objects.none()
+            except Exception:
+                qs_block = TrainingRequest.objects.none()
+
+            try:
+                qs_other = TrainingRequest.objects.filter(block=assigned_block)
+            except Exception:
+                qs_other = TrainingRequest.objects.none()
+        else:
+            qs_block = TrainingRequest.objects.none()
+            qs_other = TrainingRequest.objects.none()
+
+        qs = (qs_block | qs_other).distinct().order_by('-created_at')
+
+        # Read status filter from GET param (case-insensitive)
+        requested_status = (request.GET.get('status') or '').strip().upper()
+
+        # Valid status tokens derived from model choices
+        VALID_STATUSES = [c[0].upper() for c in getattr(TrainingRequest, 'STATUS_CHOICES', [])]
+
+        # If a status filter is provided and valid, apply it.
+        if requested_status:
+            if requested_status in VALID_STATUSES:
+                qs = qs.filter(status__iexact=requested_status)
+            else:
+                # invalid filter -> zero results (do not fallback)
+                qs = TrainingRequest.objects.none()
+        else:
+            # No explicit status filter: keep existing fallback behavior if qs empty
+            if not qs.exists():
+                qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+
+        # Annotate beneficiary counts for faster rendering
+        try:
+            # If qs is a sliced queryset (like [:200]) it's a list, so guard:
+            if hasattr(qs, 'annotate'):
+                qs = qs.annotate(beneficiary_count=Count('beneficiaries'))
+            else:
+                # convert list to queryset-like list of objects and manually add beneficiary_count attribute
+                # but simplest safe fallback: loop and attach count attribute
+                for tr in qs:
+                    try:
+                        tr.beneficiary_count = tr.beneficiaries.count()
+                    except Exception:
+                        tr.beneficiary_count = 0
+        except Exception:
+            logger.exception("bmmu_trainings_list: annotation failed")
+    except Exception as e:
+        logger.exception("bmmu_trainings_list: unexpected error building queryset: %s", e)
+        qs = TrainingRequest.objects.none()
+
+    # Prepare status choices for template (include an 'ALL' option)
+    status_choices = [('','All')] + [(c[0], c[1]) for c in getattr(TrainingRequest, 'STATUS_CHOICES', [])]
+
+    fragment = render_to_string('bmmu_view_trainings.html', {
+        'requests': qs,
+        'status_choices': status_choices,
+        'selected_status': requested_status,
+    }, request=request)
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+    
+
+@login_required
+def bmmu_request_detail(request, request_id):
+    """
+    Render the BMMU training-request fragment INSIDE dashboard.html
+    so the dashboard chrome (navbar/sidebar/footer) remains.
+    """
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    tr = get_object_or_404(
+        TrainingRequest.objects.select_related('training_plan', 'partner', 'created_by'),
+        id=request_id
+    )
+
+    if not tr.created_by or tr.created_by.id != request.user.id:
+        return HttpResponseForbidden("Not authorized to view this request")
+
+    try:
+        batches_qs = Batch.objects.filter(request=tr)\
+            .select_related('centre')\
+            .prefetch_related('batch_beneficiaries__beneficiary', 'trainerparticipations__trainer', 'attendances')\
+            .order_by('start_date', 'id')
+    except Exception as e:
+        logger.exception("bmmu_request_detail: error fetching batches for request %s: %s", tr.id, e)
+        batches_qs = Batch.objects.none()
+
+    batch_details = []
+    for b in batches_qs:
+        try:
+            beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+        except Exception:
+            beneficiaries = []
+        try:
+            attendance_dates = list(b.attendances.order_by('date').values_list('date', flat=True))
+        except Exception:
+            attendance_dates = []
+        centre = getattr(b, 'centre', None)
+        batch_details.append({
+            'batch': b,
+            'centre': centre,
+            'beneficiaries': beneficiaries,
+            'attendance_dates': attendance_dates,
+        })
+
+    try:
+        participants = list(tr.beneficiaries.all())
+    except Exception:
+        participants = []
+
+    # minimal enrichment for display
+    try:
+        india_tz = ZoneInfo("Asia/Kolkata")
+    except Exception:
+        india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
+    
+    for p in participants:
+        dob = getattr(p, 'date_of_birth', None)
+        age = None
+        if dob:
+            try:
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            except Exception:
+                age = None
+        setattr(p, 'age', age)
+        display_name = getattr(p, 'member_name', None) or getattr(p, 'full_name', None) or getattr(p, 'member_code', None) or str(p)
+        setattr(p, 'display_name', display_name)
+        mobile = getattr(p, 'mobile_number', None) or getattr(p, 'mobile_no', None) or getattr(p, 'mobile', None) or ''
+        setattr(p, 'display_mobile', mobile)
+        try:
+            loc_parts = []
+            v = getattr(p, 'village', None)
+            if v:
+                loc_parts.append(str(v))
+            b = getattr(p, 'block', None)
+            if b:
+                loc_parts.append(getattr(b, 'block_name_en', str(b)))
+            setattr(p, 'display_location', ", ".join([x for x in loc_parts if x]))
+        except Exception:
+            setattr(p, 'display_location', '')
+
+    fragment = render_to_string('bmmu_training_detail.html', {
+        'training_request': tr,
+        'batches': batch_details,
+        'participants': participants,
+    }, request=request)
+
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+
+
+@login_required
+def bmmu_batch_view(request, batch_id):
+    """
+    Render batch page INSIDE dashboard.html (so the dashboard chrome persists).
+    """
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        b = Batch.objects.select_related('request__created_by', 'request__training_plan', 'centre')\
+            .prefetch_related(
+                'batch_beneficiaries__beneficiary',
+                'trainerparticipations__trainer',
+                'attendances__participant_records'
+            ).get(id=batch_id)
+    except Batch.DoesNotExist:
+        return HttpResponseForbidden("Batch not found or not accessible")
+    except Exception as e:
+        logger.exception("bmmu_batch_view: DB error fetching batch %s: %s", batch_id, e)
+        return HttpResponseForbidden("Server error")
+
+    try:
+        if not b.request or not b.request.created_by or b.request.created_by.id != request.user.id:
+            return HttpResponseForbidden("Not authorized to view this batch")
+    except Exception:
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+    except Exception:
+        beneficiaries = []
+
+    try:
+        trainers = [tp.trainer for tp in b.trainerparticipations.select_related('trainer').all()]
+    except Exception:
+        trainers = []
+
+    try:
+        attendance_dates = list(b.attendances.order_by('date').values_list('date', flat=True))
+    except Exception:
+        attendance_dates = []
+
+    centre_info = {}
+    try:
+        c = b.centre
+        if c:
+            centre_info = {
+                'venue_name': getattr(c, 'venue_name', None),
+                'venue_address': getattr(c, 'venue_address', None),
+                'serial_number': getattr(c, 'serial_number', None),
+                'coord_name': getattr(c, 'centre_coord_name', None),
+                'coord_mobile': getattr(c, 'centre_coord_mob_number', None),
+            }
+    except Exception:
+        centre_info = {}
+
+    fragment = render_to_string('bmmu_batch_detail.html', {
+        'batch': b,
+        'beneficiaries': beneficiaries,
+        'trainers': trainers,
+        'attendance_dates': attendance_dates,
+        'centre_info': centre_info,
+    }, request=request)
+
+    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+
+
+@login_required
+@require_http_methods(["GET"])
+def bmmu_batch_attendance_date(request, batch_id, date_str):
+    """
+    AJAX attendance fetch (unchanged) - returns JSON with html fragment.
+    """
+    if getattr(request.user, 'role', '').lower() != 'bmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    raw = unquote(date_str or '').strip()
+    the_date = None
+    parse_attempts = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"]
+    for fmt in parse_attempts:
+        try:
+            the_date = datetime.datetime.strptime(raw, fmt).date()
+            break
+        except Exception:
+            continue
+    if the_date is None:
+        try:
+            the_date = datetime.date.fromisoformat(raw.split('T')[0])
+        except Exception:
+            try:
+                from dateutil import parser as _du_parser
+                the_date = _du_parser.parse(raw).date()
+            except Exception:
+                the_date = None
+
+    if the_date is None:
+        return JsonResponse({'ok': False, 'error': f'Invalid date: {date_str}'}, status=400)
+
+    try:
+        att = BatchAttendance.objects.select_related('batch').prefetch_related('participant_records').get(batch_id=batch_id, date=the_date)
+    except BatchAttendance.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Attendance not found'}, status=404)
+    except Exception as e:
+        logger.exception("bmmu_batch_attendance_date: DB error for batch %s date %s: %s", batch_id, the_date, e)
+        return JsonResponse({'ok': False, 'error': 'Server error'}, status=500)
+
+    try:
+        if not att.batch or not getattr(att.batch, 'request', None) or not getattr(att.batch.request, 'created_by', None) or att.batch.request.created_by.id != request.user.id:
+            return HttpResponseForbidden("Not authorized to view this attendance")
+    except Exception:
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        html = render_to_string('bmmu/partials/attendance_list.html', {'attendance': att}, request=request)
+        return JsonResponse({'ok': True, 'html': html})
+    except Exception as e:
+        logger.exception("bmmu_batch_attendance_date: render error: %s", e)
+        return JsonResponse({'ok': False, 'error': 'Render error'}, status=500)
 
 def _apply_search_filter_sort(queryset, params):
     """
@@ -997,13 +1373,9 @@ def training_program_management(request):
     """
     AJAX fragment for TMS. If request is AJAX (X-Requested-With), return the fragment HTML
     with JSON-serializable lists:
-      - themes_json: list of theme ids/names
-      - modules_map_json: mapping theme -> list of {id,name,days}
-      - partners_json: list of {id,name}
-      - beneficiaries_json: list of beneficiary dicts (id,member_name,shg_name,...)
-      - trainers_json: list of trainers (id, full_name, skills, certificate_number)
-      - trainers_map_json: mapping training_plan.id -> [trainer_id,...]
-      - batches_json: list of current batches (live)
+      - themes_json, modules_map_json, partners_json, beneficiaries_json, trainers_json,
+        trainers_map_json, batches_json, blocks_json, user_role, user_block_id, user_district_id,
+        ongoing_beneficiaries_json, ongoing_trainers_json
     If non-AJAX, redirect to wrapper dashboard.
     """
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
@@ -1014,6 +1386,11 @@ def training_program_management(request):
         trainers = []
         trainers_map = {}
         batches = []
+        blocks_list = []
+        user_block_id = None
+        user_district_id = None
+        user_role = getattr(request.user, 'role', '') or ''
+
         try:
             # themes: distinct theme names (safe)
             themes_qs = TrainingPlan.objects.values_list('theme', flat=True).distinct()
@@ -1034,22 +1411,106 @@ def training_program_management(request):
             partners_qs = TrainingPartner.objects.all()[:200]
             partners = [{'id': p.id, 'name': p.name} for p in partners_qs]
 
-            # beneficiaries list (limited)
-            ben_qs = Beneficiary.objects.all()[:500]
+            # --- compute exclusions: beneficiaries/trainers already in ONGOING batches ---
+            ongoing_beneficiary_ids = set()
+            ongoing_trainer_ids = set()
+            try:
+                ongoing_beneficiary_ids = set(
+                    BatchBeneficiary.objects.filter(batch__status='ONGOING').values_list('beneficiary_id', flat=True)
+                )
+            except Exception:
+                try:
+                    ongoing_beneficiary_ids = set(
+                        Batch.objects.filter(status='ONGOING').values_list('batch_beneficiaries__beneficiary_id', flat=True)
+                    )
+                except Exception:
+                    ongoing_beneficiary_ids = set()
+
+            try:
+                ongoing_trainer_ids = set(
+                    TrainerBatchParticipation.objects.filter(batch__status='ONGOING').values_list('trainer_id', flat=True)
+                )
+            except Exception:
+                try:
+                    ongoing_trainer_ids = set(
+                        Batch.objects.filter(status='ONGOING').values_list('trainerparticipations__trainer_id', flat=True)
+                    )
+                except Exception:
+                    ongoing_trainer_ids = set()
+
+            # --- Role-based filtering and lists ---
+            role_lower = (getattr(request.user, 'role', '') or '').lower()
+
+            # Prepare blocks list (useful for DMMU filters).
+            blocks_qs = Block.objects.all().only('block_id', 'block_name_en', 'is_aspirational', 'district_id')[:2000]
+            blocks_list = [
+                {'id': b.block_id, 'name': b.block_name_en or str(b.block_id), 'is_aspirational': bool(b.is_aspirational), 'district_id': getattr(b, 'district_id', None)}
+                for b in blocks_qs
+            ]
+
+            # Determine user assignments (block/district) safely
+            try:
+                if role_lower == 'bmmu':
+                    bmmu_assign = getattr(request.user, 'bmmu_block_assignment', None)
+                    if bmmu_assign and getattr(bmmu_assign, 'block', None):
+                        user_block_id = getattr(bmmu_assign.block, 'block_id', None)
+                        user_district_id = getattr(bmmu_assign.block, 'district_id', None) or getattr(bmmu_assign.block, 'district_id', None)
+                elif role_lower == 'dmmu':
+                    dmmu_assign = getattr(request.user, 'dmmu_district_assignment', None)
+                    if dmmu_assign and getattr(dmmu_assign, 'district', None):
+                        user_district_id = getattr(dmmu_assign.district, 'district_id', None) or getattr(dmmu_assign.district, 'id', None)
+            except Exception:
+                user_block_id = user_block_id or None
+                user_district_id = user_district_id or None
+
+            # --- Beneficiaries list: apply role filters and exclude ongoing participants ---
+            ben_qs = Beneficiary.objects.all()
+
+            if role_lower == 'bmmu' and user_block_id:
+                ben_qs = ben_qs.filter(block__block_id=user_block_id)
+            elif role_lower == 'dmmu' and user_district_id:
+                ben_qs = ben_qs.filter(district__district_id=user_district_id)
+
+            if ongoing_beneficiary_ids:
+                ben_qs = ben_qs.exclude(id__in=ongoing_beneficiary_ids)
+
+            ben_qs = ben_qs[:500]
             beneficiaries = [
                 {
                     'id': b.id,
                     'member_name': getattr(b, 'member_name', '') or str(b),
                     'shg_name': getattr(b, 'shg_name', '') or '',
                     'village': getattr(b, 'village', '') or '',
-                    'district': getattr(b, 'district', '') or '',
+                    'block_id': getattr(b.block, 'block_id', None) if getattr(b, 'block', None) else None,
+                    'block_name': getattr(b.block, 'block_name_en', '') if getattr(b, 'block', None) else '',
+                    'district': getattr(b, 'district', ' ') if getattr(b, 'district', None) else '',
                     'mobile': getattr(b, 'mobile_no', '') or getattr(b, 'mobile', '') or '',
                     'category': getattr(b, 'social_category', '') or ''
                 } for b in ben_qs
             ]
 
-            # trainers: all master trainers (limited)
-            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')[:1000]
+            # --- Trainers list: apply role filters and exclude ongoing trainers (UI listing) ---
+            mt_qs = MasterTrainer.objects.all().prefetch_related('certificates')
+
+            if role_lower == 'bmmu' and user_block_id:
+                try:
+                    block_obj = Block.objects.filter(block_id=user_block_id).first()
+                    brp_district_id = getattr(block_obj, 'district_id', None) if block_obj else None
+                    if brp_district_id:
+                        mt_qs = mt_qs.filter(designation='BRP').filter(empanel_district=str(brp_district_id))
+                    else:
+                        mt_qs = mt_qs.filter(designation='BRP')
+                except Exception:
+                    mt_qs = mt_qs.filter(designation='BRP')
+            elif role_lower == 'dmmu' and user_district_id:
+                mt_qs = mt_qs.filter(empanel_district=str(user_district_id))
+            elif role_lower == 'smmu':
+                mt_qs = mt_qs
+
+            if ongoing_trainer_ids:
+                mt_qs = mt_qs.exclude(id__in=ongoing_trainer_ids)
+
+            mt_qs = mt_qs[:1000]
             trainers = []
             for t in mt_qs:
                 cert_num = ''
@@ -1057,8 +1518,11 @@ def training_program_management(request):
                 try:
                     latest = next(iter(sorted(t.certificates.all(), key=lambda c: ((c.issued_on or ''), c.id), reverse=True)), None)
                 except Exception:
-                    latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
-                    cert_num = latest_q.first() or ''
+                    try:
+                        latest_q = t.certificates.order_by('-issued_on', '-id').values_list('certificate_number', flat=True)
+                        cert_num = latest_q.first() or ''
+                    except Exception:
+                        cert_num = ''
                 else:
                     if latest:
                         cert_num = latest.certificate_number or ''
@@ -1067,24 +1531,21 @@ def training_program_management(request):
                     'id': t.id,
                     'full_name': t.full_name,
                     'certificate_number': cert_num,
-                    'skills': (t.skills or '')
+                    'skills': (t.skills or ''),
+                    'designation': (t.designation or '').upper(),
+                    'mobile': getattr(t, 'mobile_no', '') or ''
                 })
 
-            # trainers_map: first use explicit MasterTrainerExpertise if present
-            # fall back to matching trainer.skills contains training_name or theme tokens
+            # trainers_map (explicit expertise then fallback by skills)
             try:
-                # explicit expertise entries
                 for e in MasterTrainerExpertise.objects.select_related('trainer', 'training_plan').all():
                     tp_id = e.training_plan_id
                     trainers_map.setdefault(tp_id, [])
                     if e.trainer_id not in trainers_map[tp_id]:
                         trainers_map[tp_id].append(e.trainer_id)
             except Exception:
-                # if MasterTrainerExpertise model not present, ignore
                 pass
 
-            # fallback matching by skills: if modules_map entries exist, try to attach trainers by skills
-            # build a quick lookup of trainers' skills tokens
             trainer_skill_tokens = {}
             for t in mt_qs:
                 tokens = set()
@@ -1093,12 +1554,10 @@ def training_program_management(request):
                         tokens.add(tok)
                 trainer_skill_tokens[t.id] = tokens
 
-            # for each training plan, try to find trainers whose skills match training_name or theme
             for tp in tp_qs:
                 tp_id = tp.id
                 if tp_id not in trainers_map:
                     trainers_map[tp_id] = []
-                search_candidates = []
                 name_tokens = set([tok.strip().lower() for tok in ((tp.training_name or '') + ' ' + (tp.theme or '')).split() if tok.strip()])
                 if name_tokens:
                     for t_id, toks in trainer_skill_tokens.items():
@@ -1106,18 +1565,16 @@ def training_program_management(request):
                             if t_id not in trainers_map[tp_id]:
                                 trainers_map[tp_id].append(t_id)
 
-            # live batches: pick ONGOING and PENDING (common statuses)
-            # Safe check if Batch model has expected fields
+            # live batches
             batch_status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
             statuses_of_interest = [s for s in ('ONGOING', 'PENDING') if s in batch_status_choices]
             if statuses_of_interest:
-                batch_qs = Batch.objects.filter(status__in=statuses_of_interest).select_related('training_plan', 'partner')[:200]
+                batch_qs = Batch.objects.filter(status__in=statuses_of_interest).select_related('request')[:200]
             else:
-                # fallback: show last 50 batches if none of those statuses exist
-                batch_qs = Batch.objects.all().select_related('training_plan', 'partner').order_by('-created_at')[:50]
+                batch_qs = Batch.objects.all().select_related('request').order_by('-created_at')[:50]
 
             for b in batch_qs:
-                tp = getattr(b, 'training_plan', None)
+                tp = getattr(b, 'request', None) and getattr(b.request, 'training_plan', None)
                 batches.append({
                     'id': b.id,
                     'code': b.code or f'Batch-{b.id}',
@@ -1127,9 +1584,10 @@ def training_program_management(request):
                     'end': b.end_date.isoformat() if b.end_date else None,
                     'days': getattr(tp, 'no_of_days', None) if tp else None,
                     'trainers_count': b.trainers.count() if hasattr(b, 'trainers') else 0,
-                    'participants_count': b.beneficiaries.count() if hasattr(b, 'beneficiaries') else 0,
+                    'participants_count': b.batch_beneficiaries.count() if hasattr(b, 'batch_beneficiaries') else 0,
                     'status': b.status
                 })
+
         except Exception as e:
             logger.exception("training_program_management: failed to load server data: %s", e)
 
@@ -1141,113 +1599,18 @@ def training_program_management(request):
             'trainers_json': json.dumps(trainers, default=str),
             'trainers_map_json': json.dumps(trainers_map, default=str),
             'batches_json': json.dumps(batches, default=str),
+            'blocks_json': json.dumps(blocks_list, default=str),
+            'user_role': json.dumps(user_role or '', default=str),
+            'user_block_id': json.dumps(user_block_id or None, default=str),
+            'user_district_id': json.dumps(user_district_id or None, default=str),
+            'ongoing_beneficiaries_json': json.dumps(list(ongoing_beneficiary_ids), default=str),
+            'ongoing_trainers_json': json.dumps(list(ongoing_trainer_ids), default=str),
         }
         html = render_to_string("apps/tms.html", context, request=request)
         return HttpResponse(html)
 
-    # Non-AJAX: redirect to wrapper dashboard so UI/styling are intact
     return redirect("dashboard")
 
-
-@login_required
-@csrf_exempt
-def tms_create_batch(request):
-    """
-    Endpoint to create a Batch from the client-side TMS modal.
-    Accepts application/json POST (body). Minimal validation and safe creation.
-    Returns JSON {ok: True/False, batch_id:, message:}
-    """
-    if request.method != 'POST':
-        return HttpResponseBadRequest('Invalid method')
-
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except Exception:
-        return HttpResponseBadRequest('Invalid JSON')
-
-    # required fields (moduleId is required so we can map to TrainingPlan)
-    required = ['theme', 'moduleId', 'trainers', 'beneficiaries', 'partner']
-    # allow partner empty string when not chosen
-    if not all(k in payload for k in required):
-        return HttpResponseBadRequest('Missing fields')
-
-    module_id = payload.get('moduleId')
-    try:
-        # moduleId maps to TrainingPlan.id (we used that mapping earlier)
-        tp = TrainingPlan.objects.get(id=module_id)
-    except Exception:
-        return JsonResponse({'ok': False, 'message': 'Invalid module id'}, status=400)
-
-    # Parse optional dates if provided (ISO string). Keep robust: don't error on parse issues.
-    start_date = None
-    end_date = None
-    try:
-        from datetime import datetime
-        s = payload.get('start') or None
-        e = payload.get('end') or None
-        if s:
-            try:
-                start_date = datetime.fromisoformat(s).date()
-            except Exception:
-                start_date = None
-        if e:
-            try:
-                end_date = datetime.fromisoformat(e).date()
-            except Exception:
-                end_date = None
-    except Exception:
-        start_date = None
-        end_date = None
-
-    # partner may be empty string or id
-    partner_val = payload.get('partner') or None
-    partner_obj = None
-    if partner_val:
-        try:
-            partner_obj = TrainingPartner.objects.filter(id=partner_val).first()
-        except Exception:
-            partner_obj = None
-
-    # safe create within transaction
-    try:
-        with transaction.atomic():
-            batch = Batch.objects.create(
-                training_plan=tp,
-                start_date=start_date,
-                end_date=end_date,
-                partner=partner_obj,
-                created_by=request.user if hasattr(request.user, 'id') else None,
-                status='PENDING' if 'PENDING' in [c[0] for c in Batch._meta.get_field('status').choices] else getattr(Batch, 'status', 'DRAFT')
-            )
-            # attach trainers if provided (list of ids)
-            trainers = payload.get('trainers') or []
-            if trainers:
-                try:
-                    trainers_qs = MasterTrainer.objects.filter(id__in=trainers)
-                    batch.trainers.set(trainers_qs)
-                except Exception:
-                    pass
-
-            # attach beneficiaries ids
-            beneficiaries = payload.get('beneficiaries') or []
-            if beneficiaries:
-                try:
-                    ben_qs = Beneficiary.objects.filter(id__in=beneficiaries)
-                    batch.beneficiaries.set(ben_qs)
-                except Exception:
-                    pass
-
-            # assign code if needed
-            if not getattr(batch, 'code', None):
-                import uuid
-                batch.code = 'B-' + str(uuid.uuid4())[:8]
-                batch.save()
-
-    except Exception as e:
-        logger.exception("tms_create_batch: failed to create batch: %s", e)
-        return JsonResponse({'ok': False, 'message': 'Server error creating batch'}, status=500)
-
-    return JsonResponse({'ok': True, 'batch_id': batch.code or batch.id, 'message': 'Batch created successfully'})
 
 @login_required
 def master_trainer_dashboard(request):
@@ -1606,15 +1969,6 @@ def training_partner_centre_registration(request):
         "submissions": submissions_qs,
     }
     return render(request, "training_partner/centre_registration.html", context)
-
-@login_required
-def partner_ongoing_trainings(request):
-    partner = _get_partner_for_user(request.user)
-    ongoing = Batch.objects.filter(
-        request__partner=partner,
-        status__iexact='ongoing'
-    ).select_related('training_plan')
-    return render(request, 'training_partner/ongoing_list.html', {'ongoing': ongoing})
 
 @require_POST
 @login_required
@@ -2221,6 +2575,10 @@ def partner_create_batches(request, request_id=None):
 
 @login_required
 def partner_ongoing_trainings(request):
+    """
+    Partner-facing list of batches. Uses BatchBeneficiary for per-batch participants.
+    Keeps your auto-status update logic intact.
+    """
     if getattr(request.user, "role", "").lower() != "training_partner":
         return HttpResponseForbidden("Not authorized")
 
@@ -2228,28 +2586,20 @@ def partner_ongoing_trainings(request):
     if not partner:
         return HttpResponseForbidden("No partner profile")
 
-    # Use explicit India timezone so "today" matches Lucknow / Asia/Kolkata
+    # timezone / today
     try:
         india_tz = ZoneInfo("Asia/Kolkata")
     except Exception:
-        # fallback to Django timezone localtime if ZoneInfo not available
         india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
 
-    if india_tz:
-        today = datetime.now(tz=india_tz).date()
-    else:
-        # last-resort: use Django timezone (may be server-local)
-        today = timezone.localdate()
-
-    # read filter from querystring; default to 'all'
     status_param = (request.GET.get('status') or 'all').strip().lower()
 
-    # base queryset for the partner
-    batches_qs = Batch.objects.filter(request__partner=partner)
+    # base queryset for the partner: batches belonging to partner via request or centre
+    batches_qs = Batch.objects.filter(Q(request__partner=partner) | Q(centre__partner=partner))
 
-    # --- AUTO-UPDATE statuses based on start_date / end_date (safe, idempotent) ---
+    # --- AUTO-UPDATE statuses based on dates (keeps your existing logic) ---
     try:
-        # discover valid tokens from model choices
         try:
             status_choices = [c[0] for c in Batch._meta.get_field('status').choices]
         except Exception:
@@ -2263,69 +2613,43 @@ def partner_ongoing_trainings(request):
 
         ongoing_token = find_choice_token('ONGOING') or find_choice_token('Ongoing') or 'ONGOING'
         completed_token = find_choice_token('COMPLETED') or find_choice_token('Completed') or 'COMPLETED'
-        # optional: scheduled token fallback
         scheduled_token = find_choice_token('SCHEDULED') or find_choice_token('Scheduled') or 'SCHEDULED'
 
-        # consider batches that belong to this partner (not already completed)
         candidates = batches_qs.filter(~Q(status__iexact=completed_token))
 
         for b in candidates:
             try:
-                # Normalize batch start/end to date
                 raw_start = getattr(b, 'start_date', None)
                 raw_end = getattr(b, 'end_date', None)
 
-                start_date = None
-                end_date = None
-
-                if raw_start is not None:
-                    if isinstance(raw_start, datetime):
-                        start_date = raw_start.date()
-                    elif isinstance(raw_start, date):
-                        start_date = raw_start
-
-                if raw_end is not None:
-                    if isinstance(raw_end, datetime):
-                        end_date = raw_end.date()
-                    elif isinstance(raw_end, date):
-                        end_date = raw_end
+                start_date = raw_start.date() if isinstance(raw_start, datetime) else raw_start if isinstance(raw_start, date) else None
+                end_date = raw_end.date() if isinstance(raw_end, datetime) else raw_end if isinstance(raw_end, date) else None
 
                 current_status = (getattr(b, 'status', '') or '').strip()
 
-                # If end_date is in the past -> mark completed (optional)
-                # Uncomment the block below if you want automatic completion:
-                # if end_date and end_date < today:
-                #     if current_status.upper() != str(completed_token).upper():
-                #         b.status = completed_token
-                #         b.save(update_fields=['status'])
-                #     continue
-
-                # If start_date is today -> set ONGOING (unless already ongoing)
                 if start_date and start_date == today:
                     if not current_status or current_status.upper() != str(ongoing_token).upper():
                         b.status = ongoing_token
                         b.save(update_fields=['status'])
                         logger.info("partner_ongoing_trainings: auto-set batch %s -> %s (start_date == today %s)", getattr(b, 'id', None), ongoing_token, today)
-
-                # If start_date is in future and status is empty -> ensure SCHEDULED (optional)
-                # if start_date and start_date > today and (not current_status or current_status.upper() not in [str(scheduled_token).upper(), str(ongoing_token).upper()]):
-                #     b.status = scheduled_token
-                #     b.save(update_fields=['status'])
             except Exception:
                 logger.exception("partner_ongoing_trainings: failed to auto-update status for batch %s", getattr(b, 'id', 'unknown'))
     except Exception:
         logger.exception("partner_ongoing_trainings: auto-update status step failed, continuing without updates")
 
-    # apply status filter if not 'all'
+    # status filter
     if status_param != 'all':
         batches_qs = batches_qs.filter(status__iexact=status_param)
 
-    # optimize related objects used in template
-    batches_qs = batches_qs.select_related('request__training_plan').prefetch_related('trainers').order_by('start_date')
+    # annotate participant counts using BatchBeneficiary relation
+    batches_qs = batches_qs.select_related('request__training_plan', 'centre')\
+                           .annotate(participants_count=Count('batch_beneficiaries', distinct=True))\
+                           .prefetch_related('trainers')\
+                           .order_by('start_date')
 
     batches = list(batches_qs)
 
-    # compute age helper
+    # helper to compute age
     def compute_age(dob):
         if not dob:
             return None
@@ -2335,19 +2659,35 @@ def partner_ongoing_trainings(request):
         except Exception:
             return None
 
+    # attach trainers_list and batch-specific beneficiaries_list for each batch
     for b in batches:
-        trainers_list = list(b.trainers.all())
-        beneficiaries_list = list(b.request.beneficiaries.all()) if getattr(b, 'request', None) else []
+        try:
+            trainers_list = list(b.trainers.all())
+        except Exception:
+            trainers_list = []
 
-        # attach age to beneficiaries
-        for ben in beneficiaries_list:
-            ben.age = compute_age(getattr(ben, 'date_of_birth', None))
+        # **CRITICAL FIX**: fetch beneficiaries FROM BatchBeneficiary (per-batch), NOT from request
+        try:
+            bb_qs = b.batch_beneficiaries.select_related('beneficiary').all()
+            beneficiaries_list = []
+            for bb in bb_qs:
+                ben = bb.beneficiary
+                # attach small helpers as used elsewhere
+                ben.age = compute_age(getattr(ben, 'date_of_birth', None))
+                # mobile / display_name may exist already; set safe fallbacks
+                ben.display_name = getattr(ben, 'member_name', None) or getattr(ben, 'full_name', None) or str(ben)
+                ben.mobile_display = getattr(ben, 'mobile_number', None) or getattr(ben, 'mobile_no', None) or getattr(ben, 'mobile', '')
+                beneficiaries_list.append(ben)
+        except Exception:
+            # fallback to empty list (do not use request beneficiaries)
+            beneficiaries_list = []
 
         setattr(b, 'trainers_list', trainers_list)
         setattr(b, 'beneficiaries_list', beneficiaries_list)
+        # ensure template-friendly attribute for count (if template expects different name)
+        setattr(b, 'participants_count', getattr(b, 'participants_count', len(beneficiaries_list)))
 
     status_options = ['all', 'ONGOING', 'COMPLETED', 'SCHEDULED', 'CANCELLED']
-
     context = {
         'partner': partner,
         'batches': batches,
@@ -2357,31 +2697,36 @@ def partner_ongoing_trainings(request):
     }
     return render(request, 'training_partner/ongoing_list.html', context)
 
+
 @login_required
 def attendance_per_batch(request, batch_id):
-    # fetch batch + related to minimize queries
+    """
+    Split rendering: day-1 eKYC template vs normal attendance template.
+
+    Behavior:
+      - GET: renders either attendance_per_batch_ekyc.html or attendance_per_batch.html
+      - POST:
+         * AJAX action=record_fingerprint -> update/create BatchEkycVerification (RECORDED)
+         * AJAX action=verify_ekyc     -> update/create BatchEkycVerification (VERIFIED) and return all_verified flag
+         * Otherwise -> attendance CSV/checkboxes handling (unchanged)
+    """
     batch = get_object_or_404(
         Batch.objects.select_related('request__training_plan', 'centre').prefetch_related('trainers'),
         id=batch_id
     )
-    # Use explicit India timezone so "today" matches Lucknow / Asia/Kolkata
+
+    # timezone / today
     try:
         india_tz = ZoneInfo("Asia/Kolkata")
     except Exception:
-        # fallback to Django timezone localtime if ZoneInfo not available
         india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
 
-    if india_tz:
-        today = datetime.now(tz=india_tz).date()
-    else:
-        # last-resort: use Django timezone (may be server-local)
-        today = timezone.localdate()
-
-    # attach training_plan for template
+    # helper: attach training_plan for templates
     training_plan = getattr(batch.request, 'training_plan', None) if getattr(batch, 'request', None) else None
     setattr(batch, 'training_plan', training_plan)
 
-    # ensure centre name available as `.name`
+    # centre display names (safety)
     if getattr(batch, 'centre', None):
         centre_display = getattr(batch.centre, 'venue_name', None) or getattr(batch.centre, 'centre_coord_name', None) or str(batch.centre)
         try:
@@ -2389,9 +2734,18 @@ def attendance_per_batch(request, batch_id):
         except Exception:
             setattr(batch, 'centre_name', centre_display)
 
-    # ---------- prepare participants & ekYC lookups ----------
-    trainers_qs = list(batch.trainers.all())
-    beneficiaries_qs = list(batch.request.beneficiaries.all()) if getattr(batch, 'request', None) else []
+    # Trainers list
+    try:
+        trainers_qs = list(batch.trainers.all())
+    except Exception:
+        trainers_qs = []
+
+    # Beneficiaries from per-batch relation
+    try:
+        bb_qs = batch.batch_beneficiaries.select_related('beneficiary').all()
+        beneficiaries_qs = [bb.beneficiary for bb in bb_qs]
+    except Exception:
+        beneficiaries_qs = []
 
     trainers_display = []
     for t in trainers_qs:
@@ -2400,10 +2754,10 @@ def attendance_per_batch(request, batch_id):
 
     beneficiaries_display = []
     for b in beneficiaries_qs:
-        display_name = getattr(b, 'member_name', None) or getattr(b, 'name', None) or str(b)
+        display_name = getattr(b, 'member_name', None) or getattr(b, 'name', None) or getattr(b, 'full_name', None) or str(b)
         beneficiaries_display.append({'id': b.id, 'name': display_name, 'obj': b})
 
-    # safe ekYC getter
+    # safe get existing ekyc
     def safe_get_ekyc(batch_obj, participant_id, role):
         try:
             return BatchEkycVerification.objects.filter(
@@ -2412,10 +2766,10 @@ def attendance_per_batch(request, batch_id):
                 participant_role=role
             ).first()
         except OperationalError as e:
-            logger.warning("OperationalError while querying BatchEkycVerification: %s", e)
+            logger.warning("OperationalError reading BatchEkycVerification: %s", e)
             return None
         except Exception as e:
-            logger.exception("Unexpected error while querying BatchEkycVerification: %s", e)
+            logger.exception("Unexpected error reading BatchEkycVerification: %s", e)
             return None
 
     participants = []
@@ -2434,77 +2788,92 @@ def attendance_per_batch(request, batch_id):
             'ekyc': safe_get_ekyc(batch, b['id'], 'beneficiary')
         })
 
-    # check if ekyc table accessible (only show warning once)
+    # check table accessibility
     ek_table_accessible = True
     try:
         BatchEkycVerification.objects.exists()
     except OperationalError:
         ek_table_accessible = False
         if not request.session.get('ekyc_table_warning_shown'):
-            messages.warning(request, "E-KYC DB table missing or not accessible — e-KYC upload will be unavailable until migrations are applied.")
+            messages.warning(request, "E-KYC DB table missing or not accessible — e-KYC functionality is unavailable until migrations are applied.")
             request.session['ekyc_table_warning_shown'] = True
 
-    # ---------- POST handling ----------
+    # ---------- POST: handle AJAX actions & attendance ----------
     if request.method == 'POST':
-        # E-KYC upload
-        if 'participant_id' in request.POST:
-            logger.info("E-KYC upload POST. files=%s", list(request.FILES.keys()))
-
+        action = request.POST.get('action')
+        if action in ('record_fingerprint', 'verify_ekyc'):
+            # return JSON (AJAX) for these actions
+            logger.debug("attendance_per_batch: AJAX action=%s batch=%s user=%s", action, batch_id, request.user)
             if not ek_table_accessible:
-                messages.error(request, "E-KYC functionality not available: DB table missing. Run migrations.")
-                return redirect('attendance_per_batch', batch_id=batch.id)
+                return JsonResponse({'success': False, 'error': 'E-KYC table not available.'}, status=500)
 
             try:
                 participant_id = int(request.POST.get('participant_id', 0))
             except (TypeError, ValueError):
-                messages.error(request, "Invalid participant id.")
-                return redirect('attendance_per_batch', batch_id=batch.id)
-
+                return JsonResponse({'success': False, 'error': 'Invalid participant id.'}, status=400)
             participant_role = request.POST.get('participant_role', '')
-            uploaded_file = request.FILES.get('ekyc_file')
-
-            if not uploaded_file:
-                messages.error(request, "No file uploaded. Please choose a PDF and try again.")
-                return redirect('attendance_per_batch', batch_id=batch.id)
 
             try:
-                ekyc_obj, created = BatchEkycVerification.objects.get_or_create(
-                    batch=batch,
-                    participant_id=participant_id,
-                    participant_role=participant_role,
-                    defaults={'ekyc_status': 'PENDING'}
-                )
+                with transaction.atomic():
+                    if action == 'record_fingerprint':
+                        ekyc_obj, created = BatchEkycVerification.objects.update_or_create(
+                            batch=batch,
+                            participant_id=participant_id,
+                            participant_role=participant_role,
+                            defaults={'ekyc_status': 'RECORDED'}
+                        )
+                        logger.info("Recorded fingerprint: batch=%s pid=%s role=%s id=%s", batch_id, participant_id, participant_role, ekyc_obj.id)
+                        return JsonResponse({
+                            'success': True,
+                            'status': 'RECORDED',
+                            'status_display': 'Recorded',
+                            'ekyc_id': ekyc_obj.id
+                        })
+                    else:  # verify_ekyc
+                        ekyc_obj, created = BatchEkycVerification.objects.update_or_create(
+                            batch=batch,
+                            participant_id=participant_id,
+                            participant_role=participant_role,
+                            defaults={'ekyc_status': 'VERIFIED'}
+                        )
+                        logger.info("Verified ekyc: batch=%s pid=%s role=%s id=%s", batch_id, participant_id, participant_role, ekyc_obj.id)
 
-                ekyc_obj.ekyc_document = uploaded_file
-                ekyc_obj.ekyc_status = 'PENDING'
-                ekyc_obj.save()
+                        # compute whether all participants are verified now
+                        all_verified = True
+                        for p in participants:
+                            try:
+                                verified = BatchEkycVerification.objects.filter(
+                                    batch=batch,
+                                    participant_id=p['id'],
+                                    participant_role=p['role'],
+                                    ekyc_status='VERIFIED'
+                                ).exists()
+                            except Exception as e:
+                                logger.exception("Error checking verify for participant %s: %s", p, e)
+                                verified = False
+                            if not verified:
+                                all_verified = False
+                                break
 
-                ekyc_obj = BatchEkycVerification.objects.get(pk=ekyc_obj.pk)
-                file_url = getattr(ekyc_obj.ekyc_document, 'url', None)
-                file_name = getattr(ekyc_obj.ekyc_document, 'name', None)
-                logger.info("Saved eKYC: batch=%s participant=%s role=%s file=%s url=%s", batch.id, participant_id, participant_role, file_name, file_url)
-
-                if file_url:
-                    messages.success(request, "E-KYC uploaded successfully.")
-                else:
-                    messages.warning(request, "E-KYC saved but file URL not available. Check MEDIA settings / storage.")
+                        return JsonResponse({
+                            'success': True,
+                            'status': 'VERIFIED',
+                            'status_display': 'Verified',
+                            'ekyc_id': ekyc_obj.id,
+                            'all_verified': all_verified
+                        })
             except Exception as e:
-                logger.exception("Error saving E-KYC: %s", e)
-                messages.error(request, f"Failed to save E-KYC: {str(e)}")
+                logger.exception("Error processing action %s: %s", action, e)
+                return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-            return redirect('attendance_per_batch', batch_id=batch.id)
-
-        # Attendance submission (CSV / checkboxes)
+        # attendance submission (CSV / checkboxes) - same as before
         elif 'csv_file' in request.FILES or any(k.startswith('trainer_') or k.startswith('beneficiary_') for k in request.POST):
-            # create attendance for today
             attendance_obj, created = BatchAttendance.objects.get_or_create(batch=batch, date=today)
-
             csv_file = request.FILES.get('csv_file')
             if csv_file:
                 attendance_obj.csv_upload = csv_file
                 attendance_obj.save()
 
-            # collect checkbox attendance
             participant_list = []
             for t in trainers_display:
                 present = request.POST.get(f"trainer_{t['id']}") == 'on'
@@ -2535,15 +2904,16 @@ def attendance_per_batch(request, batch_id):
                 )
 
             messages.success(request, f"Attendance recorded for {today}.")
-            # AFTER saving attendance redirect to attendance list display (so forms/tables disappear)
             return redirect('attendance_per_batch', batch_id=batch.id)
 
-    # ---------- GET handling ----------
+        else:
+            messages.error(request, "Unrecognized form submission.")
+            return redirect('attendance_per_batch', batch_id=batch.id)
+
+    # ---------- GET: selected-date attendance ----------
     selected_date = request.GET.get('date')
     attendance_records = None
     attendance_obj = None
-
-    # If date selected, show that day's attendance records and CSV link
     if selected_date:
         try:
             selected_date_obj = timezone.datetime.strptime(selected_date, '%Y-%m-%d').date()
@@ -2554,27 +2924,40 @@ def attendance_per_batch(request, batch_id):
             messages.error(request, "Invalid date format.")
             selected_date = None
 
-    # Show ekYC only on first day and if missing
+    # determine ekYC / attendance visibility
     is_first_day = (batch.start_date == today)
+
+    # if any participant not VERIFIED => missing_ekyc True
     missing_ekyc = False
     try:
         for p in participants:
-            if not getattr(p.get('ekyc'), 'ekyc_document', None):
+            st = None
+            try:
+                if p.get('ekyc'):
+                    st = getattr(p['ekyc'], 'ekyc_status', None)
+            except Exception:
+                st = None
+            if st != 'VERIFIED':
                 missing_ekyc = True
                 break
     except Exception:
         missing_ekyc = True
 
-    # Do not show attendance upload if attendance already recorded for today
     attendance_exists_today = BatchAttendance.objects.filter(batch=batch, date=today).exists()
-
     show_ekyc = is_first_day and missing_ekyc
-    show_attendance = batch.status.lower() == 'ongoing' and (not is_first_day or (is_first_day and not missing_ekyc)) and (not attendance_exists_today)
+    show_attendance = (getattr(batch, 'status', '').lower() == 'ongoing') and (not is_first_day or (is_first_day and not missing_ekyc)) and (not attendance_exists_today)
 
-    # If neither ekYC nor upload form shown, show attendance list for the batch (links)
     attendance_list = None
     if not show_ekyc and not show_attendance and not selected_date:
         attendance_list = BatchAttendance.objects.filter(batch=batch).order_by('-date')
+
+    # choose template: split day-1 eKYC into its own template
+    def render_template_for_batch():
+        if show_ekyc:
+            template_name = 'training_partner/attendance_per_batch_ekyc.html'
+        else:
+            template_name = 'training_partner/attendance_per_batch.html'
+        return template_name
 
     context = {
         'batch': batch,
@@ -2587,10 +2970,11 @@ def attendance_per_batch(request, batch_id):
         'attendance_records': attendance_records,
         'selected_date': selected_date,
         'attendance_list': attendance_list,
-        'attendance_obj': attendance_obj,  # in case template wants CSV link
+        'attendance_obj': attendance_obj,
     }
-    return render(request, 'training_partner/attendance_per_batch.html', context)
 
+    chosen_template = render_template_for_batch()
+    return render(request, chosen_template, context)
 
 @login_required
 def partner_upload_attendance(request, batch_id):
@@ -3144,130 +3528,156 @@ def smmu_request_detail(request, batch_id):
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
 
 
+FY_RE = re.compile(r'^\d{4}-\d{2}$')
+
+
 @login_required
-def smmu_training_partner_assignment(request):
+def smmu_create_partner_target(request):
     """
-    SMMU interface to assign TrainingPlan -> TrainingPartner using TrainingPlanPartner model.
-    Updated to attach assignment metadata onto plan objects so template doesn't need custom filters.
+    GET: render the create_training_partner_targets.html form (SMMU only)
+    POST: create/update a TrainingPartnerTargets record based on posted data.
+    This view does NOT rely on TrainingPlanPartner (which you said doesn't exist).
     """
-    # basic role guard (adjust according to your project role logic)
+    # Role guard
     if getattr(request.user, 'role', '').lower() != 'smmu':
         return HttpResponseForbidden("Not authorized")
 
-    # plans where current user is theme expert
-    plans_qs = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
-    partners = list(TrainingPartner.objects.all().order_by('name'))
+    # ---------- GET: render form ----------
+    if request.method == 'GET':
+        partners = TrainingPartner.objects.all().order_by('name')
+        # Modules (training plans) that this SMMU is theme_expert for
+        modules = TrainingPlan.objects.filter(theme_expert=request.user).order_by('-created_at')
+        districts = District.objects.order_by('district_name_en')
 
-    if request.method == 'POST':
-        partner_id = request.POST.get('partner_id') or request.POST.get('partner')
-        training_plan_ids = request.POST.getlist('training_plan_ids') or request.POST.get('training_plan_ids', '')
-        if isinstance(training_plan_ids, str):
-            training_plan_ids = [x.strip() for x in training_plan_ids.split(',') if x.strip()]
-        force_flag = request.POST.get('force') in ('1', 'true', 'yes', 'on')
+        # There are no assignment records (TrainingPlanPartner) in this project.
+        # We keep plans_with_meta but set assign=None for each plan so template shows "Not assigned".
+        plans_with_meta = [{'obj': p, 'assign': None} for p in modules]
 
-        # validate partner
-        try:
-            partner = TrainingPartner.objects.get(pk=int(partner_id))
-        except Exception:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'error': 'Invalid partner selected.'}, status=400)
-            messages.error(request, 'Invalid partner selected.')
-            return redirect('smmu_training_partner_assignment')
-
-        # collect valid plans
-        valid_plan_objs = []
-        bad_ids = []
-        for pid in training_plan_ids:
-            try:
-                p = TrainingPlan.objects.get(pk=int(pid), theme_expert=request.user)
-                valid_plan_objs.append(p)
-            except Exception:
-                bad_ids.append(pid)
-
-        if bad_ids:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'error': f'Invalid training plan ids: {bad_ids}'}, status=400)
-            messages.error(request, f'Invalid training plan selection: {bad_ids}')
-            return redirect('smmu_training_partner_assignment')
-
-        # detect conflicts
-        conflicts = []
-        for plan in valid_plan_objs:
-            existing = TrainingPlanPartner.objects.filter(training_plan=plan).exclude(partner=partner).first()
-            if existing:
-                conflicts.append({
-                    'training_plan_id': plan.id,
-                    'training_name': plan.training_name,
-                    'conflicting_partner_id': existing.partner.id,
-                    'conflicting_partner_name': existing.partner.name
-                })
-
-        if conflicts and not force_flag:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({
-                    'success': False,
-                    'conflict': True,
-                    'message': f"{len(conflicts)} selected training plan(s) are already assigned to other partner(s).",
-                    'conflicts': conflicts
-                }, status=200)
-            messages.warning(request, f"{len(conflicts)} selected training plan(s) are already assigned to other partner(s). Please confirm to reassign.")
-            qs = f"?partner_id={partner.id}&training_plan_ids={','.join([str(p.id) for p in valid_plan_objs])}"
-            return redirect('smmu_training_partner_assignment' + qs)
-
-        # perform reassignment
-        reassigned = []
-        created = []
-        with transaction.atomic():
-            plan_ids = [p.id for p in valid_plan_objs]
-            if plan_ids:
-                TrainingPlanPartner.objects.filter(training_plan_id__in=plan_ids).exclude(partner=partner).delete()
-            for p in valid_plan_objs:
-                obj, created_flag = TrainingPlanPartner.objects.update_or_create(
-                    training_plan=p,
-                    partner=partner,
-                    defaults={'assigned_by': request.user}
-                )
-                if created_flag:
-                    created.append(p.training_name)
-                else:
-                    reassigned.append(p.training_name)
-
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({
-                'success': True,
-                'message': f"Assigned {len(valid_plan_objs)} training plan(s) to {partner.name}.",
-                'created': created,
-                'reassigned': reassigned
-            })
-        messages.success(request, f"Assigned {len(valid_plan_objs)} training plan(s) to {partner.name}.")
-        return redirect('smmu_training_partner_assignment')
-
-    # GET: assemble plan metadata
-    plans = list(plans_qs)
-    # fetch existing assignments for these plans
-    existing_assignments = TrainingPlanPartner.objects.filter(training_plan__in=plans).select_related('partner', 'training_plan')
-    assign_map = {}
-    for a in existing_assignments:
-        assign_map[a.training_plan_id] = {
-            'partner_id': a.partner.id,
-            'partner_name': a.partner.name,
-            'assigned_on': getattr(a, 'assigned_on', None),
-            # include other fields if needed
+        context = {
+            'partners': partners,
+            'modules': modules,
+            'districts': districts,
+            'plans_with_meta': plans_with_meta,
         }
+        return render(request, 'smmu/create_training_partner_targets.html', context)
 
-    # prepare plans_with_meta — each item is {'obj': plan, 'assign': assign_map.get(plan.id)}
-    plans_with_meta = []
-    for p in plans:
-        plans_with_meta.append({
-            'obj': p,
-            'assign': assign_map.get(p.id)
-        })
+    # ---------- POST: create / update target ----------
+    if request.method != 'POST':
+        return HttpResponseBadRequest("Only GET and POST are supported at this endpoint.")
 
-    context = {
-        'plans_with_meta': plans_with_meta,
-        'partners': partners,
+    # Read POSTed fields
+    partner_id = request.POST.get('partner_id')
+    district_id = request.POST.get('district_id')
+    training_plan_id = request.POST.get('training_plan_id')
+    target_type = (request.POST.get('target_type') or '').upper()
+    target_count = request.POST.get('target_count')
+    notes = request.POST.get('notes', '')
+    financial_year = (request.POST.get('financial_year') or '').strip()
+    post_theme = request.POST.get('theme')
+
+    # Basic presence checks
+    if not partner_id or not target_type or target_count is None or financial_year == '':
+        return JsonResponse({'success': False, 'error': 'Missing required fields: partner_id, target_type, target_count, financial_year are required.'}, status=400)
+
+    # Validate FY format
+    if not FY_RE.match(financial_year):
+        return JsonResponse({'success': False, 'error': "financial_year must be like '2023-24'."}, status=400)
+
+    # Fetch partner
+    try:
+        partner = TrainingPartner.objects.get(pk=int(partner_id))
+    except Exception:
+        return JsonResponse({'success': False, 'error': 'Invalid partner.'}, status=400)
+
+    # Optional: fetch district and training plan if provided
+    district = None
+    training_plan = None
+    if district_id:
+        try:
+            district = District.objects.get(pk=int(district_id))
+        except Exception:
+            return JsonResponse({'success': False, 'error': 'Invalid district.'}, status=400)
+
+    if training_plan_id:
+        try:
+            training_plan = TrainingPlan.objects.get(pk=int(training_plan_id))
+        except Exception:
+            return JsonResponse({'success': False, 'error': 'Invalid training plan/module.'}, status=400)
+
+    # Validate numeric target_count
+    try:
+        tc = int(target_count)
+        if tc < 0:
+            raise ValueError()
+    except Exception:
+        return JsonResponse({'success': False, 'error': 'target_count must be a non-negative integer.'}, status=400)
+
+    # Validate target_type
+    if target_type not in ('MODULE', 'DISTRICT', 'THEME'):
+        return JsonResponse({'success': False, 'error': f'Invalid target_type: {target_type}'}, status=400)
+
+    # Business-rule enforcement
+    if target_type == 'MODULE':
+        if not training_plan:
+            return JsonResponse({'success': False, 'error': 'training_plan_id is required for MODULE targets.'}, status=400)
+        if not district:
+            return JsonResponse({'success': False, 'error': 'district_id is required for MODULE targets.'}, status=400)
+    elif target_type == 'DISTRICT':
+        if not district:
+            return JsonResponse({'success': False, 'error': 'district_id is required for DISTRICT targets.'}, status=400)
+    elif target_type == 'THEME':
+        # infer theme (priority: posted theme -> training_plan.theme -> SMMU's theme via TrainingPlan)
+        inferred_theme = None
+        if post_theme:
+            inferred_theme = post_theme.strip()
+        elif training_plan and getattr(training_plan, 'theme', None):
+            inferred_theme = training_plan.theme
+        else:
+            inferred = TrainingPlan.objects.filter(theme_expert=request.user).values_list('theme', flat=True).distinct().first()
+            if inferred:
+                inferred_theme = inferred
+        if not inferred_theme:
+            return JsonResponse({'success': False, 'error': 'Unable to determine theme for THEME target. Provide "theme" or select a module with a theme, or ensure the logged-in SMMU is a theme_expert.'}, status=400)
+
+    # Build lookup kwargs for update_or_create to avoid duplicates
+    lookup = {
+        'partner': partner,
+        'target_type': target_type,
+        'financial_year': financial_year
     }
-    return render(request, 'smmu/training_partner_assignment.html', context)
+    defaults = {
+        'allocated_by': request.user,
+        'target_count': tc,
+        'notes': notes,
+    }
+
+    if target_type == 'MODULE':
+        lookup.update({'training_plan': training_plan, 'district': district})
+    elif target_type == 'DISTRICT':
+        lookup.update({'district': district})
+    else:  # THEME
+        lookup.update({'theme': inferred_theme})
+
+    # Create or update within a transaction
+    try:
+        with transaction.atomic():
+            obj, created = TrainingPartnerTargets.objects.update_or_create(defaults=defaults, **lookup)
+            # run model validation (model.clean) and save
+            obj.full_clean()
+            obj.save()
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+    
+    partner_name = getattr(obj, "partner", None)
+    partner_name = partner_name.name if partner_name else None
+
+    return JsonResponse({
+        "success": True,
+        "created": bool(created),
+        "target_id": obj.id,
+        "partner_name": partner_name,
+        "message": f"Target created for {partner_name}." if created else "Target updated."
+    })
 
 @login_required
 def dmmu_dashboard(request):
@@ -3503,20 +3913,23 @@ def dmmu_training_requests(request):
         assigned_district = None
 
     qs = TrainingRequest.objects.none()
+
     try:
         if assigned_district:
-            # best-effort: find BMMU users assigned to blocks in this district
+            # Find BMMU users under this district
             try:
-                block_assigns = BmmuBlockAssignment.objects.filter(block__district=assigned_district).values_list('user_id', flat=True)
+                block_assigns = BmmuBlockAssignment.objects.filter(
+                    block__district=assigned_district
+                ).values_list('user_id', flat=True)
                 user_ids = list(block_assigns)
-                if user_ids:
-                    qs_block = TrainingRequest.objects.filter(level__iexact='BLOCK', created_by_id__in=user_ids)
-                else:
-                    qs_block = TrainingRequest.objects.none()
+                qs_block = (
+                    TrainingRequest.objects.filter(level__iexact='BLOCK', created_by_id__in=user_ids)
+                    if user_ids else TrainingRequest.objects.none()
+                )
             except Exception:
                 qs_block = TrainingRequest.objects.none()
 
-            # Also include requests that explicitly reference this district if that field exists
+            # Requests directly tied to this district
             try:
                 qs_other = TrainingRequest.objects.filter(district=assigned_district)
             except Exception:
@@ -3527,15 +3940,49 @@ def dmmu_training_requests(request):
 
         qs = (qs_block | qs_other).distinct().order_by('-created_at')
 
-        # If nothing found, show recent BLOCK requests as fallback
-        if not qs.exists():
-            qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+        # Read and normalize status filter
+        requested_status = (request.GET.get('status') or '').strip().upper()
+
+        # Allowed statuses from model
+        VALID_STATUSES = [c[0].upper() for c in getattr(TrainingRequest, 'STATUS_CHOICES', [])]
+
+        # Apply filter if provided
+        if requested_status:
+            if requested_status in VALID_STATUSES:
+                qs = qs.filter(status__iexact=requested_status)
+            else:
+                # Invalid filter → empty queryset
+                qs = TrainingRequest.objects.none()
+        else:
+            # Only apply fallback if no filter AND no data
+            if not qs.exists():
+                qs = TrainingRequest.objects.filter(level__iexact='BLOCK').order_by('-created_at')[:200]
+
     except Exception as e:
         logger.exception("dmmu_training_requests: unexpected error building queryset: %s", e)
         qs = TrainingRequest.objects.none()
 
-    fragment = render_to_string('dmmu/training_requests.html', {'requests': qs}, request=request)
-    return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment})
+    # Prepare dropdown options (add "All" on top)
+    status_choices = [('', 'All')] + list(getattr(TrainingRequest, 'STATUS_CHOICES', []))
+
+    fragment = render_to_string(
+        'dmmu/training_requests.html',
+        {
+            'requests': qs,
+            'status_choices': status_choices,
+            'selected_status': requested_status,
+        },
+        request=request,
+    )
+
+    return render(
+        request,
+        'dashboard.html',
+        {
+            'user': request.user,
+            'default_content': fragment,
+        },
+    )
 
 @login_required
 def dmmu_request_detail(request, request_id):
@@ -3655,7 +4102,11 @@ def dmmu_request_detail(request, request_id):
                 logger.exception("dmmu_request_detail: failed processing posted trainers for batch %s", b.id)
 
         # Approve all => set request.status and all batches.status
-        today = timezone.localdate()
+        try:
+            india_tz = ZoneInfo("Asia/Kolkata")
+        except Exception:
+            india_tz = None
+        today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
         if action == 'approve_all':
             try:
                 if hasattr(tr, 'status'):
@@ -3790,7 +4241,13 @@ def dmmu_request_detail(request, request_id):
         participants = []
 
     # compute participant helpers (display_name, display_mobile, display_location, age)
-    today = date.today()
+    
+    try:
+        india_tz = ZoneInfo("Asia/Kolkata")
+    except Exception:
+        india_tz = None
+    today = datetime.now(tz=india_tz).date() if india_tz else timezone.localdate()
+    
     for p in participants:
         dob = getattr(p, 'date_of_birth', None)
         age = None
@@ -3855,15 +4312,218 @@ def dmmu_request_detail(request, request_id):
                 if c.trainer_id not in trainer_cert_map:
                     trainer_cert_map[c.trainer_id] = c.certificate_number
     except Exception:
-        trainer_cert_map = {}
-
-    fragment_html = render_to_string('dmmu/request_detail.html', {
-        'training_request': tr,
-        'batches': batch_details,
-        'participants': participants,
-        'master_trainers': master_trainers,
-        'trainer_cert_map': trainer_cert_map,
-        'today': today,
-    }, request=request)
+        trainer_cert_map = {}   
+       
+    if (getattr(tr, 'status', '') or '').upper() == 'COMPLETED':
+        # render a closure screen listing batches (clickable rows)
+        fragment_html = render_to_string('dmmu/request_closure.html', {
+            'training_request': tr,
+            'batches': batch_details,
+        }, request=request)
+    else:
+        fragment_html = render_to_string('dmmu/request_detail.html', {
+            'training_request': tr,
+            'batches': batch_details,
+            'participants': participants,
+            'master_trainers': master_trainers,
+            'trainer_cert_map': trainer_cert_map,
+            'today': today,          
+        }, request=request)
 
     return render(request, 'dashboard.html', {'user': request.user, 'default_content': fragment_html})
+
+@login_required
+@require_http_methods(["GET"])
+def dmmu_batch_detail_ajax(request, batch_id):
+    """
+    AJAX view: return an HTML fragment (modal body) containing
+    batch details, participants, centre summary, dates list and attendance outlines.
+
+    Defensive + trainer fallback to BatchEkycVerification if TrainerBatchParticipation missing.
+    """
+    if getattr(request.user, 'role', '').lower() != 'dmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    try:
+        b = Batch.objects.select_related('request__training_plan', 'centre')\
+            .prefetch_related(
+                'batch_beneficiaries__beneficiary',
+                'trainerparticipations__trainer',
+                'attendances__participant_records'
+            ).get(id=batch_id)
+    except Batch.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Batch not found'}, status=404)
+    except Exception as e:
+        logger.exception("dmmu_batch_detail_ajax: DB error fetching batch %s: %s", batch_id, e)
+        return JsonResponse({'ok': False, 'error': 'Server error fetching batch'}, status=500)
+
+    try:
+        # beneficiaries
+        try:
+            beneficiaries = [bb.beneficiary for bb in b.batch_beneficiaries.select_related('beneficiary').all()]
+        except Exception:
+            beneficiaries = []
+
+        # trainers: prefer TrainerBatchParticipation -> trainer FK
+        trainers = []
+        try:
+            trainers = [tp.trainer for tp in b.trainerparticipations.select_related('trainer').all()]
+        except Exception:
+            trainers = []
+
+        # fallback: look for trainers recorded as eKYC participant_role='Trainer'
+        if not trainers:
+            try:
+                ek_trainer_ids = list(BatchEkycVerification.objects.filter(batch=b, participant_role__iexact='trainer')
+                                       .values_list('participant_id', flat=True))
+                # filter unique and fetch MasterTrainer by id; fallback to User
+                ek_trainer_ids = list(dict.fromkeys([int(x) for x in ek_trainer_ids if x is not None]))
+                if ek_trainer_ids:
+                    # try MasterTrainer model
+                    try:
+                        trainers = list(MasterTrainer.objects.filter(id__in=ek_trainer_ids))
+                    except Exception:
+                        trainers = []
+                    # If still empty, try to look up User objects (some setups use user IDs)
+                    if not trainers:
+                        try:
+                            users = list(User.objects.filter(id__in=ek_trainer_ids))
+                            # convert User -> minimal objects with desirable attrs if necessary
+                            trainers = []
+                            for u in users:
+                                # create a lightweight wrapper-like object if MasterTrainer not present
+                                # but template expects 'full_name' and 'mobile_no' etc.
+                                u.full_name = getattr(u, 'get_full_name', lambda: getattr(u, 'username', str(u)))()
+                                u.mobile_no = getattr(u, 'mobile_number', None) or getattr(u, 'mobile', None) or getattr(u, 'phone', None)
+                                trainers.append(u)
+                        except Exception:
+                            trainers = trainers or []
+            except Exception:
+                trainers = trainers or []
+
+        # attendance dates
+        attendance_dates = []
+        try:
+            attendance_dates = list(b.attendances.order_by('date').values_list('date', flat=True))
+        except Exception:
+            attendance_dates = []
+
+        # centre_info
+        centre_info = {}
+        try:
+            c = b.centre
+            if c:
+                centre_info = {
+                    'venue_name': getattr(c, 'venue_name', None),
+                    'venue_address': getattr(c, 'venue_address', None),
+                    'serial_number': getattr(c, 'serial_number', None),
+                    'coord_name': getattr(c, 'centre_coord_name', None),
+                    'coord_mobile': getattr(c, 'centre_coord_mob_number', None),
+                }
+        except Exception:
+            centre_info = {}
+
+        html = render_to_string('dmmu/partials/batch_detail_modal.html', {
+            'batch': b,
+            'beneficiaries': beneficiaries,
+            'trainers': trainers,
+            'attendance_dates': attendance_dates,
+            'centre_info': centre_info,
+            'request_obj': getattr(b, 'request', None),
+        }, request=request)
+
+        return JsonResponse({'ok': True, 'html': html})
+    except Exception as e:
+        logger.exception("dmmu_batch_detail_ajax: render error for batch %s: %s", batch_id, e)
+        return JsonResponse({'ok': False, 'error': 'Server error rendering batch details'}, status=500)
+
+    
+@login_required
+@require_http_methods(["GET"])
+def dmmu_batch_attendance_date(request, batch_id, date_str):
+    """
+    date_str expected 'YYYY-MM-DD' but accept several common variants.
+    Returns JSON { ok: True, html: "..." } or { ok: False, error: "..." }.
+    """
+    if getattr(request.user, 'role', '').lower() != 'dmmu':
+        return HttpResponseForbidden("Not authorized")
+
+    # defensive: decode URL-encoded parts and strip whitespace
+    try:
+        raw = unquote(str(date_str or '')).strip()
+    except Exception:
+        raw = (date_str or '').strip()
+
+    the_date = None
+
+    # Try common formats in order
+    parse_attempts = [
+        "%Y-%m-%d",            # 2025-10-04
+        "%Y-%m-%dT%H:%M:%S",   # 2025-10-04T00:00:00
+        "%d-%m-%Y",            # 04-10-2025
+        "%d/%m/%Y",            # 04/10/2025
+        "%b %d, %Y",           # Oct 04, 2025
+        "%b. %d, %Y",          # Oct. 4, 2025
+        "%B %d, %Y",           # October 4, 2025
+    ]
+
+    for fmt in parse_attempts:
+        try:
+            the_date = datetime.datetime.strptime(raw, fmt).date()
+            break
+        except Exception:
+            continue
+
+    if the_date is None:
+        # Try isoformat parse (handles many ISO variants), or fallback to dateutil if available
+        try:
+            # try to handle trailing milliseconds or timezone (basic)
+            if 'T' in raw and raw.endswith('Z'):
+                # normalize Z timezone
+                raw_norm = raw.replace('Z', '+00:00')
+            else:
+                raw_norm = raw
+
+            try:
+                # Python 3.7+: fromisoformat can parse many ISO strings (without Z)
+                the_date = datetime.date.fromisoformat(raw_norm.split('T')[0])
+            except Exception:
+                # fallback to parsing whole timestamp if present
+                try:
+                    dt = datetime.datetime.fromisoformat(raw_norm)
+                    the_date = dt.date()
+                except Exception:
+                    the_date = None
+        except Exception:
+            the_date = None
+
+    if the_date is None:
+        # final fallback: try python-dateutil if installed
+        try:
+            from dateutil import parser as _du_parser
+            try:
+                dt = _du_parser.parse(raw)
+                the_date = dt.date()
+            except Exception:
+                the_date = None
+        except Exception:
+            the_date = None
+
+    if the_date is None:
+        logger.info("dmmu_batch_attendance_date: invalid date string received: %r (batch=%s) from %s", raw, batch_id, request.path)
+        return JsonResponse({'ok': False, 'error': f'Invalid date format: {raw!s}'}, status=400)
+
+    try:
+        att = BatchAttendance.objects.select_related('batch').prefetch_related('participant_records').get(batch_id=batch_id, date=the_date)
+    except BatchAttendance.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'No attendance found'}, status=404)
+    except Exception as e:
+        logger.exception("dmmu_batch_attendance_date: DB error fetching attendance for batch %s date %s: %s", batch_id, the_date, e)
+        return JsonResponse({'ok': False, 'error': 'Server error fetching attendance'}, status=500)
+
+    try:
+        html = render_to_string('dmmu/partials/attendance_list.html', {'attendance': att}, request=request)
+        return JsonResponse({'ok': True, 'html': html})
+    except Exception as e:
+        logger.exception("dmmu_batch_attendance_date: render error for batch %s date %s: %s", batch_id, the_date, e)
+        return JsonResponse({'ok': False, 'error': 'Server error rendering attendance'}, status=500)

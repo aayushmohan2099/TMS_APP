@@ -1,0 +1,274 @@
+{# dmmu/request_closure.html - fragment (updated) #}
+{% load static custom_tags %}
+
+<h4>Training Request Closure: {{ training_request.id }} — {{ training_request.training_plan.training_name }}</h4>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <p><strong>Theme:</strong> {{ training_request.training_plan.theme }}</p>
+    <p><strong>Level:</strong> {{ training_request.level|default:"—" }}</p>
+    <p><strong>Requested by:</strong>
+      {% if training_request.created_by %}
+        {{ training_request.created_by.get_full_name|default:training_request.created_by.username }}
+      {% else %}
+        &mdash;
+      {% endif %}
+    </p>
+    <p><strong>Status:</strong> <span class="badge bg-secondary">COMPLETED</span></p>
+
+    <hr>
+    <h6>Batches involved in this Training Request</h6>
+
+    {% if batches %}
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered" id="closureBatchesTable">
+          <thead class="table-light">
+            <tr>
+              <th>Batch</th>
+              <th>Centre</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Participants</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in batches %}
+              {% with b=item.batch %}
+                <tr class="clickable-row" data-batch-id="{{ b.id }}" style="cursor:pointer;">
+                  <td>{{ b.code|default:b.id }}</td>
+                  <td>{{ item.centre_info.venue_name|default:item.centre.venue_name|default:'—' }}</td>
+                  <td>{{ b.start_date|date:"Y-m-d"|default:"—" }}</td>
+                  <td>{{ b.end_date|date:"Y-m-d"|default:"—" }}</td>
+                  <td>{{ item.beneficiaries|length }}</td>
+                </tr>
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-3">
+        <button id="openAnnexures" class="btn btn-primary">Upload annexures & closure documents</button>
+        <a href="{% url 'dmmu_training_requests' %}" class="btn btn-outline-secondary">Back to requests</a>
+      </div>
+
+    {% else %}
+      <div class="text-muted">No batches found for this request.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal placeholder for batch details -->
+<div class="modal fade" id="batchDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="modalTitle" class="modal-title">Batch details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div id="modalBody" class="modal-body">
+        <!-- filled by AJAX -->
+        <div class="text-center small text-muted">Loading…</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Annexures panel (hidden until Open) -->
+<div id="annexuresPanel" class="card mb-3" style="display:none;">
+  <div class="card-body">
+    <h5>Upload Annexures</h5>
+    <ul class="nav nav-tabs" role="tablist" id="annexTabs">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabCertificate" role="tab">Training completion certificate</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabTADA" role="tab">TA/DA Document</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabClosureReport" role="tab">Training Closure report</a></li>
+    </ul>
+
+    <div class="tab-content mt-3">
+      <div class="tab-pane fade show active" id="tabCertificate" role="tabpanel">
+        <form id="certUploadForm" method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <div class="mb-2">
+            <input type="file" name="certificate_file" class="form-control" />
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Upload</button>
+            <a class="btn btn-outline-secondary" href="{% static 'images/training_closure_formats/training_certificate_format.pdf' %}" target="_blank">Download format</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="tab-pane fade" id="tabTADA" role="tabpanel">
+        <form id="tadaUploadForm" method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <div class="mb-2">
+            <input type="file" name="tada_file" class="form-control" />
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Upload</button>
+            <a class="btn btn-outline-secondary" href="{% static 'images/training_closure_formats/tada_format.pdf' %}" target="_blank">Download format</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="tab-pane fade" id="tabClosureReport" role="tabpanel">
+        <div class="mb-2 small text-muted">Generate a combined closure report (demo): choose what to include.</div>
+
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="include_cert" checked>
+          <label class="form-check-label" for="include_cert">Include certificates</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="include_tada" checked>
+          <label class="form-check-label" for="include_tada">Include TA/DA</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="include_attendance" checked>
+          <label class="form-check-label" for="include_attendance">Include attendance</label>
+        </div>
+
+        <div class="mt-3 d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="{% static 'images/training_closure_formats/training_closure_report_format.pdf' %}" target="_blank">Download format</a>
+          <button id="generate_closure_report" class="btn btn-primary">Upload Report</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // Bootstrap modal init (safe)
+  const modalEl = document.getElementById('batchDetailModal');
+  let bsModal = null;
+  if (modalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function') {
+    try { bsModal = new bootstrap.Modal(modalEl); } catch (e) { bsModal = null; }
+  }
+
+  const modalBody = document.getElementById('modalBody');
+  const modalTitle = document.getElementById('modalTitle');
+
+  // Build robust URL helpers using Django-generated placeholders
+  // These template tags render a working URL with a placeholder '0' and/or 'YYYY-MM-DD' which we safely replace below.
+  const baseBatchDetailUrl = "{% url 'dmmu_batch_detail_ajax' 0 %}"; // e.g. /dmmu/batch/0/ajax/
+  const baseAttendanceDateUrl = "{% url 'dmmu_batch_attendance_date' 0 'YYYY-MM-DD' %}"; // e.g. /dmmu/batch/0/attendance/YYYY-MM-DD/
+
+  function buildBatchDetailUrl(batchId) {
+    // prefer replacing '/0/' pattern; fallback to replacing trailing 0
+    let u = baseBatchDetailUrl;
+    if (u.indexOf('/0/') !== -1) {
+      return u.replace('/0/', '/' + batchId + '/');
+    }
+    // replace 0 at end
+    return u.replace(/0(\/)?$/, String(batchId) + '$1');
+  }
+
+  function buildAttendanceDateUrl(batchId, isoDate) {
+    let u = baseAttendanceDateUrl;
+    // replace '/0/' or '0/' and the date placeholder
+    u = u.replace(/0(\/)?/, String(batchId) + '$1');
+    return u.replace('YYYY-MM-DD', isoDate);
+  }
+
+  // fetch + show batch details in modal
+  function fetchBatchDetail(batchId) {
+    if (!modalBody) return;
+    modalBody.innerHTML = '<div class="text-center small text-muted py-4">Loading…</div>';
+
+    const url = buildBatchDetailUrl(batchId);
+
+    fetch(url, {
+      credentials: 'include',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(r => r.json())
+    .then(j => {
+      if (!j || !j.ok) {
+        modalBody.innerHTML = '<div class="text-danger small">Failed to load batch details.</div>';
+        return;
+      }
+      modalBody.innerHTML = j.html || '<div class="text-muted small">No details returned.</div>';
+
+      // Attach click handlers to attendance-date rows inside the modal (delegation)
+      modalBody.querySelectorAll('.attendance-date-row').forEach(function(row){
+        row.addEventListener('click', function(){
+          const date = row.dataset.date;
+          const batchIdLocal = row.dataset.batchId || batchId;
+          if (!date || !batchIdLocal) return;
+
+          const dateUrl = buildAttendanceDateUrl(batchIdLocal, date);
+
+          // show a loading hint
+          const td = row.querySelector('td[id^="attendance-"]') || row.querySelector('td:last-child');
+          if (td) td.innerHTML = '<span class="small text-muted">Loading attendance…</span>';
+
+          fetch(dateUrl, {
+            credentials: 'include',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          })
+          .then(resp => resp.json())
+          .then(js => {
+            if (js && js.ok && js.html) {
+              const dst = modalBody.querySelector('#attendancePlaceholder');
+              if (dst) {
+                dst.innerHTML = js.html;
+                dst.scrollIntoView({behavior:'smooth'});
+              } else {
+                // fallback: replace the cell
+                if (td) td.innerHTML = js.html;
+              }
+            } else {
+              if (td) td.innerHTML = '<span class="text-danger small">No attendance found</span>';
+            }
+          }).catch(err => {
+            console.error('attendance fetch error', err);
+            if (td) td.innerHTML = '<span class="text-danger small">Error loading attendance</span>';
+          });
+        });
+      });
+
+    }).catch(err => {
+      console.error('batch detail fetch error', err);
+      if (modalBody) modalBody.innerHTML = '<div class="text-danger small">Unexpected error loading batch details.</div>';
+    });
+  }
+
+  // Attach click handlers to the table rows (safe; table exists in fragment)
+  document.querySelectorAll('.clickable-row').forEach(function(row){
+    row.addEventListener('click', function () {
+      const batchId = this.dataset.batchId;
+      if (!batchId) return;
+      const batchLabel = this.children[0] ? this.children[0].textContent.trim() : batchId;
+      if (modalTitle) modalTitle.textContent = 'Batch details: ' + batchLabel;
+      if (bsModal) bsModal.show();
+      fetchBatchDetail(batchId);
+    });
+  });
+
+  // Annexures panel toggle
+  document.getElementById('openAnnexures')?.addEventListener('click', function(){
+    const panel = document.getElementById('annexuresPanel');
+    if (!panel) return;
+    if (panel.style.display === 'none' || panel.style.display === '') panel.style.display = 'block';
+    else panel.style.display = 'none';
+    panel.scrollIntoView({behavior:'smooth'});
+  });
+
+  // Demo closure-report generator
+  document.getElementById('generate_closure_report')?.addEventListener('click', function(e){
+    e.preventDefault();
+    const include_cert = document.getElementById('include_cert')?.checked;
+    const include_tada = document.getElementById('include_tada')?.checked;
+    const include_attendance = document.getElementById('include_attendance')?.checked;
+    alert('Demo: would generate closure report with options:\\n' +
+          'Include certificates: ' + (include_cert ? 'Yes' : 'No') + '\\n' +
+          'Include TA/DA: ' + (include_tada ? 'Yes' : 'No') + '\\n' +
+          'Include attendance: ' + (include_attendance ? 'Yes' : 'No'));
+  });
+
+});
+</script>

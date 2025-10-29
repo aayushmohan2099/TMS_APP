@@ -1,4 +1,6 @@
 {% extends "training_partner/base_partner.html" %}
+{% load static %}
+
 {% block title %}Batch Attendance{% endblock %}
 
 {% block header_title %}
@@ -36,42 +38,94 @@
     </div>
   </div>
 
-  {% if show_ekyc %}
-    <!-- E-KYC Upload (unchanged) -->
-    <div class="card mb-3 shadow-sm">
-      <div class="card-body">
-        <h5 class="mb-3">Day 1 E-KYC Verification</h5>
-        <p class="small text-muted">Upload PDF verification documents for each trainer and beneficiary.</p>
+  {% if show_attendance %}
+  <div class="card mb-3 shadow-sm">
+    <div class="card-body">
+      <h5 class="mb-3">Attendance for {{ today|date:"Y-m-d" }}</h5>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label fw-bold">Upload Punch Machine CSV (optional):</label>
+          <input type="file" name="csv_file" accept=".csv" class="form-control">
+          <small class="text-muted">Optional - upload one CSV file for today's punch records.</small>
+        </div>
 
-        <table class="table table-striped align-middle table-sm">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Role</th>
-              <th>E-KYC File</th>
-              <th>Action</th>
-            </tr>
-          </thead>
+        <h6>Master Trainers</h6>
+        <table class="table table-sm table-bordered">
+          <thead><tr><th>Name</th><th>Present</th></tr></thead>
           <tbody>
-            {% for p in participants %}
+            {% for t in trainers %}
             <tr>
-              <td>{{ p.name }}</td>
-              <td>{{ p.role|title }}</td>
+              <td>{{ t.name }}</td>
+              <td><input type="checkbox" name="trainer_{{ t.id }}" aria-label="Present {{ t.name }}"></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2" class="text-muted">No trainers assigned.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <h6>Beneficiaries</h6>
+        <table class="table table-sm table-bordered">
+          <thead><tr><th>Name</th><th>Present</th></tr></thead>
+          <tbody>
+            {% for b in beneficiaries %}
+            <tr>
+              <td>{{ b.name }}</td>
+              <td><input type="checkbox" name="beneficiary_{{ b.id }}" aria-label="Present {{ b.name }}"></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2" class="text-muted">No beneficiaries found for this batch.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="text-end">
+          <button type="submit" class="btn btn-success">Submit Attendance</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card mb-3 shadow-sm">
+    <div class="card-body">
+      <h5 class="mb-3">Attendance Records</h5>
+      {% if attendance_list %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover">
+            <thead><tr><th>Date</th><th>Note / Label</th></tr></thead>
+            <tbody>
+              {% for a in attendance_list %}
+              <tr>
+                <td><a href="{% url 'attendance_per_batch' batch.id %}?date={{ a.date|date:'Y-m-d' }}">{{ a.date|date:"Y-m-d" }}</a></td>
+                <td>{{ a.note|default:"Attendance" }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted"></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Selected-date detail view (unchanged) #}
+  {% if selected_date and attendance_records %}
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5>Attendance on {{ selected_date }}</h5>
+        <table class="table table-sm table-striped">
+          <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for record in attendance_records %}
+            <tr>
+              <td>{{ record.participant_name }}</td>
+              <td>{{ record.participant_role|title }}</td>
               <td>
-                {% if p.ekyc and p.ekyc.ekyc_document %}
-                  <a href="{{ p.ekyc.ekyc_document.url }}" target="_blank">View File</a>
-                {% else %}
-                  —
-                {% endif %}
-              </td>
-              <td>
-                <form method="post" enctype="multipart/form-data" class="d-flex align-items-center">
-                  {% csrf_token %}
-                  <input type="hidden" name="participant_id" value="{{ p.id }}">
-                  <input type="hidden" name="participant_role" value="{{ p.role }}">
-                  <input type="file" name="ekyc_file" accept="application/pdf" required>
-                  <button type="submit" class="btn btn-sm btn-outline-primary ms-2">Upload</button>
-                </form>
+                <span class="badge bg-{% if record.present %}success{% else %}danger{% endif %}">
+                  {% if record.present %}Present{% else %}Absent{% endif %}
+                </span>
               </td>
             </tr>
             {% endfor %}
@@ -79,130 +133,15 @@
         </table>
       </div>
     </div>
-
-  {% elif show_attendance %}
-    <!-- Attendance Upload -->
-    <div class="card mb-3 shadow-sm">
-      <div class="card-body">
-        <h5 class="mb-3">Attendance for {{ today|date:"Y-m-d" }}</h5>
-        <form method="post" enctype="multipart/form-data">
-          {% csrf_token %}
-          <div class="mb-3">
-            <label class="form-label fw-bold">Upload Punch Machine CSV (optional):</label>
-            <input type="file" name="csv_file" accept=".csv" class="form-control">
-            <small class="text-muted">Optional - upload one CSV file for today's punch records.</small>
-          </div>
-
-          <h6>Master Trainers</h6>
-          <table class="table table-sm table-bordered">
-            <thead><tr><th>Name</th><th>Present</th></tr></thead>
-            <tbody>
-              {% for t in trainers %}
-              <tr>
-                <td>{{ t.name }}</td>
-                <td><input type="checkbox" name="trainer_{{ t.id }}" aria-label="Present {{ t.name }}"></td>
-              </tr>
-              {% empty %}
-              <tr><td colspan="2" class="text-muted">No trainers assigned.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-
-          <h6>Beneficiaries</h6>
-          <table class="table table-sm table-bordered">
-            <thead><tr><th>Name</th><th>Present</th></tr></thead>
-            <tbody>
-              {% for b in beneficiaries %}
-              <tr>
-                <td>{{ b.name }}</td>
-                <td><input type="checkbox" name="beneficiary_{{ b.id }}" aria-label="Present {{ b.name }}"></td>
-              </tr>
-              {% empty %}
-              <tr><td colspan="2" class="text-muted">No beneficiaries found for this batch.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-
-          <div class="text-end">
-            <button type="submit" class="btn btn-success">Submit Attendance</button>
-          </div>
-        </form>
-      </div>
+  {% elif selected_date and not attendance_records %}
+    <div class="card shadow-sm">
+      <div class="card-body text-muted">No attendance records for {{ selected_date }}.</div>
     </div>
-
-  {% else %}
-    {# Attendance list view (when neither ekYC nor attendance upload should show) #}
-    <div class="card mb-3 shadow-sm">
-      <div class="card-body">
-        <h5 class="mb-3">Attendance Records</h5>
-
-        {% if attendance_list %}
-          <div class="table-responsive">
-            <table class="table table-sm table-hover">
-              <thead><tr><th>Date</th><th>Note / Label</th><th>CSV</th></tr></thead>
-              <tbody>
-                {% for a in attendance_list %}
-                <tr>
-                  <td>
-                    <a href="{% url 'attendance_per_batch' batch.id %}?date={{ a.date|date:'Y-m-d' }}">
-                      {{ a.date|date:"Y-m-d" }}
-                    </a>
-                  </td>
-                  <td>{{ a.note|default:"Attendance" }}</td>
-                  <td>
-                    {% if a.csv_upload %}
-                      <a href="{{ a.csv_upload.url }}" target="_blank">CSV</a>
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="text-muted">No attendance uploaded yet for this batch.</div>
-        {% endif %}
-      </div>
-    </div>
-
-    {# If a specific date was selected (clicked), show its attendance details below #}
-    {% if selected_date and attendance_records %}
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <h5>Attendance on {{ selected_date }}</h5>
-
-          {% if attendance_obj and attendance_obj.csv_upload %}
-            <p>
-              <strong>CSV:</strong> <a href="{{ attendance_obj.csv_upload.url }}" target="_blank">Download CSV</a>
-            </p>
-          {% endif %}
-
-          <table class="table table-sm table-striped">
-            <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
-            <tbody>
-              {% for record in attendance_records %}
-                <tr>
-                  <td>{{ record.participant_name }}</td>
-                  <td>{{ record.participant_role|title }}</td>
-                  <td>
-                    <span class="badge bg-{% if record.present %}success{% else %}danger{% endif %}">
-                      {% if record.present %}Present{% else %}Absent{% endif %}
-                    </span>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {% elif selected_date and not attendance_records %}
-      <div class="card shadow-sm">
-        <div class="card-body text-muted">No attendance records for {{ selected_date }}.</div>
-      </div>
-    {% endif %}
   {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+  {# no special JS required for normal attendance beyond base scripts #}
 {% endblock %}

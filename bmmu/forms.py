@@ -237,8 +237,3 @@ class PublicMasterTrainerProfileForm(forms.ModelForm):
         parts = [part.strip() for part in re.split(r'[;,|]', s) if part.strip()]
         normalized = ",".join(parts)
         return normalized
-
-class TrainingPlanPartnerForm(forms.ModelForm):
-    class Meta:
-        model = TrainingPlanPartner
-        fields = ['training_plan', 'partner', 'drp_payments']

@@ -1,0 +1,122 @@
+{# templates/bmmu_training_detail.html (fragment) #}
+<div class="p-2">
+  <h4 class="mb-3">Training Request — Details</h4>
+
+  <div class="card mb-3 shadow-sm">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <h5 class="card-title mb-1">{{ training_request.training_plan.training_name|default:"-" }}</h5>
+          <p class="card-text small text-muted mb-0">
+            Request ID: <strong>{{ training_request.id }}</strong>
+            &nbsp;|&nbsp; Theme: <strong>{{ training_request.training_plan.theme|default:"-" }}</strong>
+            &nbsp;|&nbsp; Level: <strong>{{ training_request.level|default:"-" }}</strong>
+            &nbsp;|&nbsp; Training Type: <strong>{{ training_request.training_plan.type_of_training|default:"-" }}</strong>
+            &nbsp;|&nbsp; Participant Type: <strong>{{ training_request.training_type|default:"-" }}</strong>
+          </p>
+          <p class="small text-muted mb-0">Date Requested: {{ training_request.created_at|date:"Y-m-d H:i" }}</p>
+          {% if training_request.partner %}
+            <p class="small mb-0">Partner: {{ training_request.partner }}</p>
+          {% endif %}
+          {% if training_request.rejection_reason %}
+            <p class="text-danger small mb-0">Rejection reason: {{ training_request.rejection_reason }}</p>
+          {% endif %}
+        </div>
+        <div class="text-end">
+          <a href="{% url 'bmmu_trainings_list' %}" class="btn btn-sm btn-outline-secondary">Back to list</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batches -->
+  <div class="mb-3">
+    <h6 class="mb-2">Batches</h6>
+    {% if batches %}
+      <div class="table-responsive shadow-sm" style="background:#fff; border-radius:6px; padding:8px;">
+        <table class="table table-sm table-striped table-bordered mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Batch Code</th>
+              <th>Centre</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Status</th>
+              <th>Beneficiaries</th>
+              <th>Attendance</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for info in batches %}
+              {% with b=info.batch %}
+                <tr>
+                  <td class="align-middle">{{ b.code }}</td>
+                  <td class="align-middle">
+                    {% if info.centre %}{{ info.centre.venue_name|default:info.centre }}{% else %}&mdash;{% endif %}
+                  </td>
+                  <td class="align-middle">{{ b.start_date|default:"-" }}</td>
+                  <td class="align-middle">{{ b.end_date|default:"-" }}</td>
+                  <td class="align-middle"><span class="badge bg-info text-dark">{{ b.status }}</span></td>
+                  <td class="align-middle">{{ info.beneficiaries|length }}</td>
+                  <td class="align-middle">
+                    {% if info.attendance_dates %}
+                      {% for d in info.attendance_dates %}
+                        <span class="badge bg-light text-dark small">{{ d|date:"Y-m-d" }}</span>
+                      {% endfor %}
+                    {% else %}
+                      <span class="text-muted small">No attendance</span>
+                    {% endif %}
+                  </td>
+                  <td class="align-middle">
+                    {# link to batch page (bmmu_batch_view) - b.id must be present; guard if missing #}
+                    {% if b.id %}
+                      <a href="{% url 'bmmu_batch_view' b.id %}" class="btn btn-sm btn-primary" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
+                    {% else %}
+                      <button class="btn btn-sm btn-secondary" onclick="history.back()" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></button>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted small">No batches created for this request.</div>
+    {% endif %}
+  </div>
+
+  <!-- Participants -->
+  <div class="mb-3">
+    <h6 class="mb-2">Participants of Training (Combined)</h6>
+    {% if participants %}
+      <div class="table-responsive shadow-sm" style="background:#fff; border-radius:6px; padding:8px; max-height:320px; overflow:auto;">
+        <table class="table table-sm table-striped mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Name</th>
+              <th>Mobile</th>
+              <th>SHG</th>
+              <th>Location</th>
+              <th>Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in participants %}
+              <tr>
+                <td>{{ p.display_name }}</td>
+                <td>{{ p.display_mobile }}</td>
+                <td>{{ p.shg_name }}</td>
+                <td>{{ p.display_location }}</td>
+                <td>{{ p.age|default:"-" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted small">No participants attached.</div>
+    {% endif %}
+  </div>
+</div>

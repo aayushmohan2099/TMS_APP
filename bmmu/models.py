@@ -4,6 +4,7 @@ from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils.text import slugify
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 # -------------------------
 # Core user model
@@ -711,15 +712,48 @@ class Batch(models.Model):
         return theme_part, location_name, state_id_part, training_type
 
     def save(self, *args, **kwargs):
+        """
+        Save with careful handling of many-to-many checks:
+        - Do not access self.trainers before the instance has a PK.
+        - After initial save, check trainers and possibly update status.
+        - Then generate code if missing (requires self.id).
+        """
         today = timezone.localdate()
 
-        # Auto-update status based on start_date
-        if self.start_date == today and self.status != 'ONGOING':
-            self.status = 'ONGOING'
+        # Default tentative status (safe value before checking M2M)
+        tentative_status = 'PENDING'
 
-        # Save first so self.id exists, required for final part of code
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
+        # If we already have a pk (existing instance), we can check trainers safely now,
+        # and decide the status before calling super().save()
+        if self.pk is not None:
+            try:
+                if self.start_date == today and self.status != 'ONGOING' and self.trainers.exists():
+                    tentative_status = 'ONGOING'
+                else:
+                    tentative_status = 'PENDING'
+            except Exception:
+                tentative_status = 'PENDING'
+            self.status = tentative_status
+
+            # now save the instance normally
+            super().save(*args, **kwargs)
+
+        else:
+            # New instance: avoid accessing M2M until after we have a PK
+            # Set status to tentative safe default, save first to get an id
+            self.status = tentative_status
+            super().save(*args, **kwargs)
+
+            # After having a PK, we can safely check M2M fields and update status if needed
+            try:
+                if self.start_date == today and self.status != 'ONGOING' and self.trainers.exists():
+                    # Use update() to avoid re-entering save() logic that might access M2M again
+                    Batch.objects.filter(pk=self.pk).update(status='ONGOING')
+                    # refresh instance attribute
+                    self.status = 'ONGOING'
+            except Exception:
+                # ignore any unexpected errors and keep the saved status
+                pass
 
         # If code empty, generate it (ensures batch.id is available)
         if not self.code:
@@ -729,12 +763,11 @@ class Batch(models.Model):
             code = f"{theme_part}-{location_name}-{state_id_part}-{training_type}-{batch_id_part}"
             # make compact and max length protection
             code = code.replace(' ', '-')
-            # ensure uniqueness by appending id (already included), and truncate to 255
             code = code[:255]
-            # update
+            # update via queryset to avoid re-triggering save() that might inspect M2M
             Batch.objects.filter(pk=self.pk).update(code=code)
-            # refresh instance attribute
             self.code = code
+
 
 
 # -------------------------
@@ -980,9 +1013,6 @@ class MasterTrainerExpertise(models.Model):
         return f"{self.trainer.full_name} -> {self.training_plan.training_name}"
 
 
-# -------------------------
-# TrainingPartnerTargets
-# -------------------------
 class TrainingPartnerTargets(models.Model):
     TARGET_TYPE_CHOICES = [
         ("DISTRICT", "District"),
@@ -992,62 +1022,102 @@ class TrainingPartnerTargets(models.Model):
 
     id = models.AutoField(primary_key=True)
     partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='targets')
-    allocated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-                                     related_name='allocated_targets')
+    allocated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='allocated_targets')
+
     target_type = models.CharField(max_length=20, choices=TARGET_TYPE_CHOICES)
-    target_key = models.CharField("Target key (District/Module/Theme)", max_length=255)
-    target_count = models.PositiveIntegerField("Target count", blank=True, null=True)
+
+    # Module (training plan) FK — required for MODULE targets
+    training_plan = models.ForeignKey(TrainingPlan, on_delete=models.CASCADE,
+                                      related_name='partner_targets', null=True, blank=True)
+
+    # District FK — required for DISTRICT targets; also required for MODULE targets per your flow
+    district = models.ForeignKey(District, on_delete=models.CASCADE,
+                                 related_name='tp_district_targets', null=True, blank=True)
+
+    # Theme string (for THEME targets or inferred from training_plan)
+    theme = models.CharField(max_length=200, blank=True, null=True)
+
+    target_count = models.PositiveIntegerField("Target count (batches)", default=0)
     notes = models.TextField("Notes / rationale", blank=True, null=True)
-    evidence_file = models.FileField("Evidence (PDF/JPG)", upload_to='target_evidence/', blank=True, null=True)
+    financial_year = models.CharField("Financial year", max_length=9, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+    allocated_on = models.DateTimeField(default=timezone.now)
 
     class Meta:
         verbose_name = "Training Partner Target"
         verbose_name_plural = "Training Partner Targets"
         indexes = [
             models.Index(fields=['partner', 'target_type']),
+            models.Index(fields=['financial_year']),
         ]
 
+    def clean(self):
+        # validate basic presence
+        if not self.partner:
+            raise ValidationError("partner is required.")
+        if not self.financial_year:
+            raise ValidationError("financial_year is required (e.g. '2023-24').")
+        if self.target_count is None:
+            raise ValidationError("target_count is required.")
+
+        # rules by target_type
+        if self.target_type == "DISTRICT":
+            # require district, disallow training_plan
+            if not self.district:
+                raise ValidationError("district must be set for DISTRICT targets.")
+            # training_plan should not be required — but protect accidental module link
+            # optional: enforce training_plan is None
+        elif self.target_type == "MODULE":
+            # require both training_plan and district per your described flow
+            if not self.training_plan:
+                raise ValidationError("training_plan must be set for MODULE targets.")
+            if not self.district:
+                raise ValidationError("district must be set for MODULE targets.")
+        elif self.target_type == "THEME":
+            # no district required; theme must be present either here or via training_plan.theme
+            if not (self.theme or (self.training_plan and getattr(self.training_plan, 'theme', None))):
+                raise ValidationError("theme must be present for THEME targets (inferred from logged-in SMMU or training_plan).")
+
+        # simple FY format sanity (very permissive)
+        if len(self.financial_year) < 5:
+            raise ValidationError("financial_year looks invalid (expected e.g. '2023-24').")
+
+    def save(self, *args, **kwargs):
+        # populate theme automatically when possible
+        if not self.theme and self.training_plan and getattr(self.training_plan, 'theme', None):
+            self.theme = self.training_plan.theme
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.partner.name} - {self.target_type}:{self.target_key} = {self.target_count or 'N/A'}"
-
-
-# -------------------------
-# TrainingPlanPartner
-# -------------------------
-class TrainingPlanPartner(models.Model):
-    id = models.AutoField(primary_key=True)
-    training_plan = models.ForeignKey(TrainingPlan, on_delete=models.CASCADE, related_name='plan_partners')
-    partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='plan_partners')
-    drp_payments = models.DecimalField("DRP Payments / Estimated Cost", max_digits=12, decimal_places=2, blank=True, null=True)
-    assigned_on = models.DateTimeField(auto_now_add=True)
-    assigned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-
-    class Meta:
-        unique_together = ('training_plan', 'partner')
-        verbose_name = "Training Plan Partner"
-        verbose_name_plural = "Training Plan Partners"
-
-    def __str__(self):
-        return f"{self.training_plan.training_name} <-> {self.partner.name} ({self.drp_payments or 'N/A'})"
+        scope = self.target_type
+        if self.target_type == "MODULE":
+            scope += f" - {getattr(self.training_plan, 'training_name', self.training_plan_id)} / {getattr(self.district, 'district_name_en', self.district_id)}"
+        elif self.target_type == "DISTRICT":
+            scope += f" - {getattr(self.district, 'district_name_en', self.district_id)}"
+        else:
+            scope += f" - {self.theme or 'N/A'}"
+        return f"{self.partner.name} — {scope} = {self.target_count} ({self.financial_year})"
+    
 
 # -------------------------
 # TrainingPartnerBatch
 # -------------------------
 class TrainingPartnerBatch(models.Model):
     STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
+        ('PENDING', 'Pending Approval'),
         ('ONGOING', 'Ongoing'),
+        ('SCHEDULED', 'SCHEDULED'),
         ('COMPLETED', 'Completed'),
-        ('CANCELLED', 'Cancelled'),
+        ('REJECTED', 'Rejected'),
     ]
 
     id = models.AutoField(primary_key=True)
     partner = models.ForeignKey(TrainingPartner, on_delete=models.CASCADE, related_name='partnerbatch')
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='partnerbatch')
-    drp_payment_actual = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
-    notes = models.TextField(blank=True, null=True)
     assigned_on = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -18,7 +18,11 @@ urlpatterns = [
 
     # BMMU endpoint for import/export/blueprint - redirects to wrapper for GET
     path("bmmu/dashboard/", views.bmmu_dashboard, name="bmmu_dashboard"),
-
+    path('bmmu/trainings-list/', views.bmmu_trainings_list, name='bmmu_trainings_list'),
+    path('bmmu/request/<int:request_id>/', views.bmmu_request_detail, name='bmmu_request_detail'),
+    path('bmmu/batch/<int:batch_id>/view/', views.bmmu_batch_view, name='bmmu_batch_view'),
+    path('bmmu/batch/<int:batch_id>/attendance/<str:date_str>/', views.bmmu_batch_attendance_date, name='bmmu_batch_attendance_date'),
+    
     # Add single beneficiary (fragment + POST)
     path("bmmu/add/", views.bmmu_add_beneficiary, name="bmmu_add_beneficiary"),
 
@@ -29,7 +33,6 @@ urlpatterns = [
     path('beneficiary/<int:pk>/update/', views.bmmu_beneficiary_update, name='bmmu_beneficiary_update'),
 
     # Training Program Management Portal (Batch Creator)
-    path('tms/create_batch/', views.tms_create_batch, name='tms_create_batch'),
     path('tms/create_request/', tms_custom.create_training_request, name='create_training_request'),
 
     # Training Program Management view (needed by redirects and direct route)
@@ -66,13 +69,19 @@ urlpatterns = [
     path('smmu/requests/', views.smmu_training_requests, name='smmu_training_requests'),
     path('smmu/request/<int:batch_id>/', views.smmu_request_detail, name='smmu_request_detail'),
     path('api/districts/', views.api_districts_for_mandal, name='api_districts_for_mandal'),
-    path('smmu/training-partner-assignment/', views.smmu_training_partner_assignment, name='smmu_training_partner_assignment'),
+    path('smmu/partner-target/create/', views.smmu_create_partner_target, name='smmu_create_partner_target'),
+
 
     # DMMU URLs
     path('dmmu/dashboard/', views.dmmu_dashboard, name='dmmu_dashboard'),
     path('dmmu/requests/', views.dmmu_training_requests, name='dmmu_training_requests'),
     path('dmmu/request/<int:request_id>/', views.dmmu_request_detail, name='dmmu_request_detail'),
-
+    path('dmmu/batch/<int:batch_id>/detail/', views.dmmu_batch_detail_ajax, name='dmmu_batch_detail_ajax'),
+    path(
+        "dmmu/batch/<int:batch_id>/attendance/<str:date_str>/",
+        views.dmmu_batch_attendance_date,
+        name="dmmu_batch_attendance_date",
+    ),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

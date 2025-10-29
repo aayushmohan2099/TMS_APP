@@ -5,6 +5,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
   <title>SMMU Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
@@ -42,6 +43,16 @@
     font-size: 14px;
     font-weight: 500;
     white-space: nowrap;
+  }
+
+  .btn-flat.btn-info {
+          background-color: #00c0ef;
+          border: none;
+          color: white;
+          transition: background 0.2s ease;
+  }
+  .btn-flat.btn-info:hover {
+    background-color: #00a7d0;
   }
 
   .fab .fab-label {
@@ -350,17 +361,6 @@
       <div class="modal-body" id="benefDetailBody">Loading...</div>
     </div>
   </div>
-</div>
-
-<!-- floating Training Requests button -->
-<a href="{% url 'smmu_training_requests' %}" class="fab" title="Training requests">
-  <span class="fab-label">Pending Training Requests</span>
-</a>
-
-<div class="col-md-4">
-  <a href="{% url 'smmu_training_partner_assignment' %}" class="btn btn-outline-success w-100 mb-3">
-    <i class="bi bi-people"></i> Training Partner Assignment
-  </a>
 </div>
 
 <!-- Chart.js (kept) -->

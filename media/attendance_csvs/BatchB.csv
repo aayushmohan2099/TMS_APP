@@ -1,0 +1,22 @@
+Candidate_ABC__c,Salutation,Name,Relation_Type__c,Relation_Guardian_Name__c,CandidateBirthdate__c,MailingStreet,MailingCity,MailingState,MailingPostalCode,Phone,Email,Name_of_the_University__c,Candidate_Id__c,Gender__c
+1,Miss,Akanksha Pal,Father,Sunil Kumar,15-01-2009,Lucknow,Lucknow,Uttar Pradesh,226021,6307304115,akansksha2009@gmail.com,UPSDM,2197854546,Female
+2,Miss,Akansha Gautam,Father,Guddu Gautam,02-06-2005,Lucknow,Lucknow,Uttar Pradesh,226021,6388403642,akansha2005@gmail.com,UPSDM,2197916540,Female
+3,Miss,Amreen ,Father,Usman Ali,01-01-2007,Lucknow,Lucknow,Uttar Pradesh,226021,9555663254,amreen2007@gmail.com,UPSDM,2197853798,Female
+4,Miss,Angil Gupta ,Father,Anand Kumar Gupta,16-05-2006,Lucknow,Lucknow,Uttar Pradesh,226021,7380445848,angilgupta2006@gmail.com,UPSDM,2197842971,Female
+5,Miss,Anshika Sharma ,Father,Brijesh Kumar,10-05-2005,Lucknow,Lucknow,Uttar Pradesh,226021,7570903215,anshika052005@gmail.com,UPSDM,2197855610,Female
+6,Miss,Awantika Jaiswal ,Father,Raj Kumar Jaiswal,22-03-2006,Lucknow,Lucknow,Uttar Pradesh,226021,9140335712,awantika2006@gmail.com,UPSDM,2197919534,Female
+7,Miss,Deepali Sahu ,Father,Dinesh Sahu,10-12-2007,Lucknow,Lucknow,Uttar Pradesh,226021,9935004929,deepali2007@gmail.com,UPSDM,2197855451,Female
+8,Miss,Garima Chaudhary ,Father,Sanjay Kumar,08-04-2007,Lucknow,Lucknow,Uttar Pradesh,226021,6307479979,garimaga2007@gmail.com,UPSDM,2197888314,Female
+9,Miss,Hina ,Father,Mohd Haseeb,01-01-2007,Lucknow,Lucknow,Uttar Pradesh,226021,6386913933,hinahina2007@gmail.com,UPSDM,2197918323,Female
+10,Miss,Jyoti Bhargav ,Father,Ramu,01-01-2005,Lucknow,Lucknow,Uttar Pradesh,226021,9005372792,jyotibhargav2005@gmail.com,UPSDM,2197878713,Female
+11,Miss,Kahkasha Fatima ,Father,Kaleem Ahmad Khan,03-12-2004,Lucknow,Lucknow,Uttar Pradesh,226021,8470861402,kahkasha2004@gmail.com,UPSDM,2197919841,Female
+12,Miss,Mansi Pal ,Father,Pappu Lal,14-08-2007,Lucknow,Lucknow,Uttar Pradesh,226021,6307116760,mansipal2007@gmail.com,UPSDM,2197888252,Female
+13,Miss,Muskan ,Father,Ashraf Ali,23-08-2007,Lucknow,Lucknow,Uttar Pradesh,226021,9219645441,muskanmusu2007@gmail.com,UPSDM,2197854539,Female
+14,Miss,MUSKAN GUPTA ,Father,"RAMESH,",20-10-2006,Lucknow,Lucknow,Uttar Pradesh,226021,9695468850,muskangupta2006@gmail.com,UPSDM,2197853404,Female
+15,Miss,Nidhi Sonwani ,Father,Raghuveer Prasad Sonwani,30-03-2007,Lucknow,Lucknow,Uttar Pradesh,226021,9651260454,nidhinidhi2007@gmail.com,UPSDM,2197921407,Female
+16,Miss,Princi Gautam ,Father,Anil Gautam,20-02-2008,Lucknow,Lucknow,Uttar Pradesh,226021,9580758314,princigauta2008@gail.com,UPSDM,2197918165,Female
+17,Miss,Shaili Sharma ,Father,Anupam Sharma,08-02-2008,Lucknow,Lucknow,Uttar Pradesh,226021,9511430442,shailisharma2008@gmail.com,UPSDM,2197854737,Female
+18,Miss,Shreya Baranval ,Father,Basantlal Baranval,26-03-2007,Lucknow,Lucknow,Uttar Pradesh,226021,9721297159,shreyabarnwal2007@gmail.com,UPSDM,2197915787,Female
+19,Miss,Shweta Vishwakarma ,Father,Ashok Vishwakarma,01-01-2006,Lucknow,Lucknow,Uttar Pradesh,226021,7275542956,shwetavishwa2006@gmail.com,UPSDM,2197915165,Female
+20,Miss,Vasundhara Awasthi ,Father,Sanjay Awasthi,16-05-2008,Lucknow,Lucknow,Uttar Pradesh,226021,8957225169,vasundhara2008@gmail.com,UPSDM,2197862901,Female
+21,Miss,Zoha Najir ,Father,Najir Ali,04-06-2006,Lucknow,Lucknow,Uttar Pradesh,226021,9984533751,zohanazir2006@gmail.com,UPSDM,2197863475,Female

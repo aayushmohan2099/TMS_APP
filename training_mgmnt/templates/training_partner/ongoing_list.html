@@ -10,10 +10,13 @@
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="mb-0">Batch List</h5>
-      <form method="get" class="d-flex align-items-center">
+
+      {# ===== SURGICAL EDIT: replaced inline onchange submit with client-side filter UI ===== #}
+      <form method="get" id="filtersForm" class="d-flex align-items-center" onsubmit="return false;">
         <label class="me-2 fw-bold">Filter:</label>
-        <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
-          {# status_options is provided by the view (e.g. ['all','ONGOING','COMPLETED',...]) #}
+
+        {# Status select — removed inline onchange submit to allow JS-managed filtering #}
+        <select id="statusFilter" name="status" class="form-select form-select-sm w-auto me-2" aria-label="Status filter">
           {% for opt in status_options %}
             {% if opt|lower == 'all' %}
               <option value="all" {% if status == 'all' %}selected{% endif %}>All</option>
@@ -22,27 +25,42 @@
             {% endif %}
           {% endfor %}
         </select>
+
+        {# Date-wise controls (compact): default = this week's batches #}
+        <div class="d-flex align-items-center me-2">
+          <div class="form-check form-check-inline me-2">
+            <input class="form-check-input" type="checkbox" id="thisWeekChk" name="this_week" checked>
+            <label class="form-check-label small" for="thisWeekChk">This week</label>
+          </div>
+
+          <input type="date" id="datePicker" name="date" class="form-control form-control-sm" title="Pick a specific date" />
+        </div>
+
+        <button id="applyFiltersBtn" class="btn btn-sm btn-outline-primary" type="button">Apply</button>
+        <button id="resetFiltersBtn" class="btn btn-sm btn-link ms-2" type="button">Reset</button>
       </form>
+      {# ===== end surgical edit ===== #}
+
     </div>
 
     {% if batches %}
       <div class="table-responsive">
-        <table class="table table-bordered table-sm align-middle">
+        <table class="table table-bordered table-sm align-middle" id="batchesTable">
           <thead class="table-light">
             <tr>
-              <th>Batch</th>
-              <th>Training</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Trainers</th>
-              <th>Participants</th>
+              <th>Batch Code</th>
+              <th>Training Module</th>
+              <th>Start Date</th>
+              <th>End Date</th>
+              <th>No of Trainers</th>
+              <th>No of Participants</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {% for b in batches %}
-            <tr>
+            <tr data-start="{{ b.start_date|date:'Y-m-d' }}">
               <td>{{ b.code|default:b.id }}</td>
 
               <td>
@@ -81,11 +99,193 @@
           </tbody>
         </table>
       </div>
+      <div id="noBatchesMsg" class="text-muted py-4" style="display:none;">No batches found for selected filter.</div>
     {% else %}
       <div class="text-muted py-4">No batches found for selected filter.</div>
     {% endif %}
 
   </div>
 </div>
+
+{# ===== JS: client-side date + status filtering (surgical, minimal) ===== #}
+<script>
+(function(){
+  // Helpers
+  function parseDateYMD(s) {
+    if (!s) return null;
+    const parts = s.split('-');
+    if (parts.length !== 3) return null;
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+
+  function startOfISOWeek(d) {
+    // returns monday of the ISO week for date d
+    const date = new Date(d);
+    const day = date.getDay(); // 0 (Sun) - 6 (Sat)
+    // ISO week start: Monday (1). Compute delta to Monday.
+    const diff = (day === 0 ? -6 : 1) - day;
+    const monday = new Date(date);
+    monday.setDate(date.getDate() + diff);
+    monday.setHours(0,0,0,0);
+    return monday;
+  }
+
+  function endOfISOWeek(d) {
+    const monday = startOfISOWeek(d);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23,59,59,999);
+    return sunday;
+  }
+
+  // DOM elements
+  const statusSelect = document.getElementById('statusFilter');
+  const thisWeekChk = document.getElementById('thisWeekChk');
+  const datePicker = document.getElementById('datePicker');
+  const applyBtn = document.getElementById('applyFiltersBtn');
+  const resetBtn = document.getElementById('resetFiltersBtn');
+  const table = document.getElementById('batchesTable');
+  const noBatchesMsg = document.getElementById('noBatchesMsg');
+
+  if (!table) return; // nothing to do
+
+  // collect all rows once
+  const rows = Array.from(table.tBodies[0].rows);
+
+  // apply filters to table rows
+  function applyFilters() {
+    // status filter: value in lowercase ('all' means no status filtering)
+    const statusVal = (statusSelect && statusSelect.value) ? statusSelect.value.toLowerCase() : 'all';
+
+    // date filter: if thisWeekChk.checked -> current week, else if datePicker has value -> that day
+    let dateMode = 'week';
+    if (thisWeekChk && !thisWeekChk.checked && datePicker && datePicker.value) {
+      dateMode = 'day';
+    } else if (thisWeekChk && thisWeekChk.checked) {
+      dateMode = 'week';
+    } else if (datePicker && datePicker.value) {
+      // if checkbox unchecked but date set, treat as specific day
+      dateMode = 'day';
+    }
+
+    // compute week range for today
+    const today = new Date();
+    const weekStart = startOfISOWeek(today);
+    const weekEnd = endOfISOWeek(today);
+
+    // if day mode, parse chosen date
+    let chosenDay = null;
+    if (dateMode === 'day') {
+      chosenDay = parseDateYMD(datePicker.value);
+      if (chosenDay) { chosenDay.setHours(0,0,0,0); }
+    }
+
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const startAttr = row.getAttribute('data-start') || '';
+      const startDate = parseDateYMD(startAttr);
+      let matchDate = false;
+      if (!startDate) {
+        matchDate = false;
+      } else if (dateMode === 'week') {
+        // check if startDate within this week's [weekStart, weekEnd]
+        matchDate = startDate >= weekStart && startDate <= weekEnd;
+      } else if (dateMode === 'day') {
+        if (!chosenDay) matchDate = false;
+        else {
+          const s = new Date(startDate); s.setHours(0,0,0,0);
+          matchDate = s.getTime() === chosenDay.getTime();
+        }
+      }
+
+      // status cell is in column 7 (0-based index 6) — read innerText of the badge
+      const statusCell = row.cells[6];
+      let rowStatus = '';
+      if (statusCell) rowStatus = statusCell.innerText.trim().toLowerCase();
+
+      let matchStatus = (statusVal === 'all') || (rowStatus.indexOf(statusVal) !== -1);
+
+      // show row only if both match
+      if (matchDate && matchStatus) {
+        row.style.display = '';
+        visibleCount++;
+      } else {
+        row.style.display = 'none';
+      }
+    });
+
+    // show/hide "no batches" message
+    if (noBatchesMsg) {
+      noBatchesMsg.style.display = visibleCount === 0 ? '' : 'none';
+      table.style.display = visibleCount === 0 ? 'none' : '';
+    }
+  }
+
+  // reset filters to defaults: this week checked, datePicker blank, status 'all' (if present)
+  function resetFilters() {
+    if (thisWeekChk) thisWeekChk.checked = true;
+    if (datePicker) datePicker.value = '';
+    if (statusSelect) statusSelect.value = (Array.from(statusSelect.options).some(o=>o.value==='all') ? 'all' : statusSelect.options[0].value);
+    applyFilters();
+  }
+
+  // event listeners
+  if (applyBtn) applyBtn.addEventListener('click', applyFilters);
+  if (resetBtn) resetBtn.addEventListener('click', resetFilters);
+
+  // also respond when the status select changes (user expectation)
+  if (statusSelect) statusSelect.addEventListener('change', applyFilters);
+
+  // if user toggles this-week checkbox, clear datePicker when checked
+  if (thisWeekChk) {
+    thisWeekChk.addEventListener('change', function(){
+      if (this.checked && datePicker) datePicker.value = '';
+      applyFilters();
+    });
+  }
+
+  // when date picked, uncheck thisWeek checkbox
+  if (datePicker) {
+    datePicker.addEventListener('change', function(){
+      if (this.value && thisWeekChk) thisWeekChk.checked = false;
+      applyFilters();
+    });
+  }
+
+  // On load: if no query params in URL (user landed fresh), apply default (this week's batches).
+  // This keeps behavior consistent with "by default this week's batches".
+  (function init() {
+    // If there are query params present for status/date, try to initialize controls from them (non-invasive)
+    const params = new URLSearchParams(window.location.search);
+    // status param
+    const s = params.get('status');
+    if (s && statusSelect) {
+      // if value exists in options, set it
+      if (Array.from(statusSelect.options).some(o=>o.value===s.toLowerCase())) {
+        statusSelect.value = s.toLowerCase();
+      }
+    }
+    // date param (optional)
+    const d = params.get('date');
+    if (d && datePicker) { datePicker.value = d; if (thisWeekChk) thisWeekChk.checked = false; }
+
+    // if user explicitly passed this_week=0 or this_week=false, respect it
+    const tw = params.get('this_week');
+    if (tw !== null && thisWeekChk) {
+      const falsy = ['0','false','no','off'];
+      thisWeekChk.checked = !falsy.includes(tw.toLowerCase());
+      if (!thisWeekChk.checked && datePicker && d) {
+        // already set above
+      }
+    }
+
+    // finally apply filters (default: this week)
+    applyFilters();
+  })();
+
+})();
+</script>
+{# ===== end surgical JS edit ===== #}
 
 {% endblock %}

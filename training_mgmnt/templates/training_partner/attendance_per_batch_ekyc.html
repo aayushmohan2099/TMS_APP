@@ -1,0 +1,212 @@
+{% extends "training_partner/base_partner.html" %}
+{% load static %}
+
+{% block title %}Batch Attendance{% endblock %}
+
+{% block header_title %}
+  {% if batch.training_plan and batch.training_plan.training_name %}
+    {{ batch.training_plan.training_name }}
+  {% elif batch.request and batch.request.training_plan and batch.request.training_plan.training_name %}
+    {{ batch.request.training_plan.training_name }}
+  {% else %}
+    Batch {{ batch.code|default:batch.id }}
+  {% endif %}
+{% endblock %}
+
+{% block header_subtitle %}Batch: {{ batch.code|default:batch.id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid" id="ekyc_root" data-endpoint="{% url 'attendance_per_batch' batch.id %}">
+
+  <!-- Batch Details -->
+  <div class="card mb-3 shadow-sm">
+    <div class="card-body">
+      <h5 class="mb-2">Batch Details</h5>
+      <p><strong>Centre:</strong>
+        {% if batch.centre %}
+          {{ batch.centre.venue_name }}
+        {% else %}
+          {{ batch.centre_name|default:"—" }}
+        {% endif %}
+      </p>
+      <p><strong>Start Date:</strong> {{ batch.start_date|date:"Y-m-d" }} | <strong>End Date:</strong> {{ batch.end_date|date:"Y-m-d" }}</p>
+      <p><strong>Status:</strong>
+        <span class="badge bg-{% if batch.status|lower == 'ongoing' %}success{% else %}secondary{% endif %}">
+          {{ batch.status|title }}
+        </span>
+      </p>
+    </div>
+  </div>
+
+  {% if show_ekyc %}
+    <!-- NEW: E-KYC Fingerprint workflow (no PDF upload) -->
+    <div class="card mb-3 shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Day 1 E-KYC — Fingerprint Verification</h5>
+        <p class="small text-muted">Please plug in your fingerprint scanner (or mobile reader), test the device connection, then record fingerprint and verify for each participant.</p>
+
+        <div id="ekyc_instructions" class="mb-3">
+          <div class="notice">Plugin your fingerprint scanner or device and click <strong>Test connection</strong>.</div>
+          <div style="margin-top:8px;">
+            <button id="testConnectionBtn" class="btn btn-outline-primary">Test connection</button>
+            <span id="testStatus" style="margin-left:10px;" class="small muted"></span>
+          </div>
+        </div>
+
+        <div id="ekyc_loader" style="display:none; margin-top:10px;">
+          <div class="small text-muted">Testing connection... <span id="connSpinner">⏳</span></div>
+        </div>
+
+        <div id="ekyc_participants_wrapper" style="display:none; margin-top:12px;">
+          <h6 class="mb-2">Participants</h6>
+          <div class="table-responsive">
+            <table class="table table-striped align-middle table-sm" id="ekyc_table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>EKYC Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for p in participants %}
+                <tr data-participant-id="{{ p.id }}" data-participant-role="{{ p.role }}">
+                  <td>{{ p.name }}</td>
+                  <td>{{ p.role|title }}</td>
+                  <td class="ekyc-status">{% if p.ekyc and p.ekyc.ekyc_status %}{{ p.ekyc.ekyc_status|title }}{% else %}Pending{% endif %}</td>
+                  <td class="ekyc-actions">
+                    <div class="d-flex gap-2 align-items-center">
+                      <button class="btn btn-sm btn-outline-secondary recordBtn"{% if p.ekyc and p.ekyc.ekyc_status == 'VERIFIED' %} disabled{% endif %}>Record Fingerprint</button>
+                      <button class="btn btn-sm btn-primary verifyBtn"{% if not p.ekyc or p.ekyc.ekyc_status != 'RECORDED' %} disabled{% endif %}>Verify!</button>
+                      <span class="small text-muted ml-2 actionStatus"></span>
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="ekyc_done_msg" style="display:none; margin-top:12px;" class="notice">
+          All participants verified — redirecting to today's attendance...
+        </div>
+      </div>
+    </div>
+
+  {% elif show_attendance %}
+    <!-- Attendance Upload (unchanged) -->
+    <div class="card mb-3 shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Attendance for {{ today|date:"Y-m-d" }}</h5>
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label fw-bold">Upload Punch Machine CSV (optional):</label>
+            <input type="file" name="csv_file" accept=".csv" class="form-control">
+            <small class="text-muted">Optional - upload one CSV file for today's punch records.</small>
+          </div>
+
+          <h6>Master Trainers</h6>
+          <table class="table table-sm table-bordered">
+            <thead><tr><th>Name</th><th>Present</th></tr></thead>
+            <tbody>
+              {% for t in trainers %}
+              <tr>
+                <td>{{ t.name }}</td>
+                <td><input type="checkbox" name="trainer_{{ t.id }}" aria-label="Present {{ t.name }}"></td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="2" class="text-muted">No trainers assigned.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <h6>Beneficiaries</h6>
+          <table class="table table-sm table-bordered">
+            <thead><tr><th>Name</th><th>Present</th></tr></thead>
+            <tbody>
+              {% for b in beneficiaries %}
+              <tr>
+                <td>{{ b.name }}</td>
+                <td><input type="checkbox" name="beneficiary_{{ b.id }}" aria-label="Present {{ b.name }}"></td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="2" class="text-muted">No beneficiaries found for this batch.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <div class="text-end">
+            <button type="submit" class="btn btn-success">Submit Attendance</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  {% else %}
+    {# Attendance list view (when neither ekYC nor attendance upload should show) #}
+    <div class="card mb-3 shadow-sm">
+      <div class="card-body">
+        <h5 class="mb-3">Attendance Records</h5>
+
+        {% if attendance_list %}
+          <div class="table-responsive">
+            <table class="table table-sm table-hover">
+              <thead><tr><th>Date</th><th>Note / Label</th></tr></thead>
+              <tbody>
+                {% for a in attendance_list %}
+                <tr>
+                  <td>
+                    <a href="{% url 'attendance_per_batch' batch.id %}?date={{ a.date|date:'Y-m-d' }}">
+                    {{ a.date|date:"Y-m-d" }}
+                    </a>
+                  </td>
+                  <td>{{ a.note|default:"Attendance" }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-muted">No attendance uploaded yet for this batch.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if selected_date and attendance_records %}
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5>Attendance on {{ selected_date }}</h5>
+          <table class="table table-sm table-striped">
+            <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for record in attendance_records %}
+                <tr>
+                  <td>{{ record.participant_name }}</td>
+                  <td>{{ record.participant_role|title }}</td>
+                  <td>
+                    <span class="badge bg-{% if record.present %}success{% else %}danger{% endif %}">
+                      {% if record.present %}Present{% else %}Absent{% endif %}
+                    </span>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% elif selected_date and not attendance_records %}
+      <div class="card shadow-sm">
+        <div class="card-body text-muted">No attendance records for {{ selected_date }}.</div>
+      </div>
+    {% endif %}
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/attendance_ekyc.js' %}" defer></script>
+{% endblock %}

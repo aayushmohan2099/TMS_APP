@@ -1,0 +1,143 @@
+{# templates/bmmu_batch_detail.html #}
+<div class="p-2">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h4 class="mb-0">Batch: {{ batch.code|default:"Batch-"|add:batch.id }}</h4>
+      <div class="small text-muted">
+        Training: {{ batch.request.training_plan.training_name|default:"-" }} &nbsp;|&nbsp;
+        Status: <strong>{{ batch.status }}</strong>
+      </div>
+    </div>
+
+    <div>
+      {# SURGICAL FIX: only reverse the request detail URL if batch.request and its id exist #}
+      {% if batch.request and batch.request.id %}
+        <a href="{% url 'bmmu_request_detail' batch.request.id %}" class="btn btn-sm btn-outline-secondary">Back to request</a>
+      {% else %}
+        {# Fallback: if there is no parent request, link back to list rather than attempting reverse. #}
+        <a href="{% url 'bmmu_trainings_list' %}" class="btn btn-sm btn-outline-secondary">Back to list</a>
+      {% endif %}
+      <a href="{% url 'bmmu_trainings_list' %}" class="btn btn-sm btn-outline-secondary ms-1">Back to list</a>
+    </div>
+  </div>
+
+  <div class="card mb-3 shadow-sm">
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-8">
+          <div class="small text-muted">Created: {{ batch.created_at|date:"Y-m-d H:i" }}</div>
+          <div class="mt-2">
+            <strong>
+              {% if centre_info.venue_name %}
+                {{ centre_info.venue_name }}
+                {% if centre_info.venue_address %}<div>{{ centre_info.venue_address }}</div>{% endif %}
+              {% else %}
+                &mdash;
+              {% endif %}
+            </strong>
+            <div class="small text-muted">
+              (Centre of Training)
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4 text-end">
+          <div class="small">Batch ID: <strong>{{ batch.id }}</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <h6>Trainers</h6>
+      {% if trainers %}
+        <ul class="list-unstyled small">
+          {% for t in trainers %}
+            <li>{{ t.full_name|default:t }}{% if t.mobile_no %} — {{ t.mobile_no }}{% endif %}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="small text-muted">No trainers assigned.</div>
+      {% endif %}
+
+      <h6 class="mt-3">Beneficiaries</h6>
+      {% if beneficiaries %}
+        <div class="table-responsive shadow-sm" style="background:#fff; border-radius:6px; padding:6px; max-height:360px; overflow:auto;">
+          <table class="table table-sm table-striped mb-0">
+            <thead class="table-light"><tr><th>Name</th><th>Mobile</th><th>SHG</th><th>Location</th></tr></thead>
+            <tbody>
+              {% for b in beneficiaries %}
+                <tr>
+                  <td>{{ b.member_name }}</td>
+                  <td>{{ b.mobile_no|default:"-" }}</td>
+                  <td>{{ b.shg_name }}</td>
+                  <td>
+                    {% if b.village %}{{ b.village }}{% endif %}
+                    {% if b.block %}, {{ b.block.block_name_en|default:b.block }}{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="small text-muted">No beneficiaries attached.</div>
+      {% endif %}
+    </div>
+
+    <div class="col-md-6">
+      <h6>Attendance Dates</h6>
+      {% if attendance_dates %}
+        <div class="mb-2">
+          {% for d in attendance_dates %}
+            <button class="btn btn-sm btn-outline-secondary me-1 mb-1 attendance-load-btn"
+                    data-attendance-url="{% url 'bmmu_batch_attendance_date' batch.id d %}">
+              {{ d|date:"Y-m-d" }}
+            </button>
+          {% endfor %}
+        </div>
+
+        <div id="attendanceContainer" class="card card-body small text-muted">
+          Select a date to load attendance.
+        </div>
+
+      {% else %}
+        <div class="small text-muted">No attendance recorded.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const container = document.getElementById('attendanceContainer');
+    if(!container) return;
+
+    document.querySelectorAll('.attendance-load-btn').forEach(btn => {
+      btn.addEventListener('click', async function(e){
+        e.preventDefault();
+        const url = btn.getAttribute('data-attendance-url');
+        if(!url){ container.innerHTML = '<div class="text-danger small">Attendance URL unavailable.</div>'; return; }
+        container.innerHTML = '<div class="small text-muted py-2">Loading attendance...</div>';
+        try {
+          const resp = await fetch(url, { credentials: 'same-origin' });
+          if(!resp.ok){
+            const txt = await resp.text().catch(()=>null);
+            console.error('attendance fetch failed', resp.status, txt);
+            container.innerHTML = '<div class="text-danger small">Error loading attendance.</div>';
+            return;
+          }
+          const json = await resp.json();
+          if(json.ok){
+            container.innerHTML = json.html || '<div class="small text-muted">No records</div>';
+          } else {
+            container.innerHTML = '<div class="text-danger small">'+(json.error||'No records')+'</div>';
+          }
+        } catch(err){
+          console.error('attendance fetch error', err);
+          container.innerHTML = '<div class="text-danger small">Network error.</div>';
+        }
+      });
+    });
+  })();
+</script>

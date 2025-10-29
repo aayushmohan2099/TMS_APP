@@ -1,10 +1,10 @@
-{# fragment: dmmu/training_requests.html #}
-<h4>Training Requests</h4>
+{# fragment: bmmu_view_trainings.html #}
+<h4>All Trainings List</h4>
 
 <div class="mb-3 d-flex align-items-center gap-3">
-  <form id="dmmu-status-form" method="get" class="d-flex align-items-center gap-2">
+  <form id="bmmu-status-form" method="get" class="d-flex align-items-center gap-2">
     <label class="small mb-0">Filter by status:</label>
-    <select name="status" id="dmmu_status" class="form-select form-select-sm" style="width:220px;">
+    <select name="status" id="bmmu_status" class="form-select form-select-sm" style="width:220px;">
       {% for val, label in status_choices %}
         {% if val %}
           <option value="{{ val }}" {% if selected_status and selected_status == val|upper %}selected{% endif %}>{{ label }}</option>
@@ -45,9 +45,21 @@
           {% with status=tr.status|default:""|upper %}
             <tr>
               <td>{{ tr.id }}</td>
-              <td>{{ tr.training_plan.training_name }}</td>
-              <td>{{ tr.training_plan.theme }}</td>
-              <td>{{ tr.level }}</td>
+              <td>
+                {% if tr.training_plan %}
+                  {{ tr.training_plan.training_name }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>
+                {% if tr.training_plan %}
+                  {{ tr.training_plan.theme }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>{{ tr.level|default:"-" }}</td>
               <td>
                 {% if tr.created_by %}
                   {{ tr.created_by.get_full_name|default:tr.created_by.username }}
@@ -55,31 +67,33 @@
                   &mdash;
                 {% endif %}
               </td>
-              <td>{{ tr.beneficiaries.count }}</td>
               <td>
-                {% if status == "BATCHING" %}
-                  <span class="badge bg-success">Batches in Creation</span>
-                {% elif status == "PENDING" %}
-                  <span class="badge bg-success">Pending Approval</span>
-                {% elif status == "ONGOING" %}
-                  <span class="badge bg-success">Approved</span>
-                {% elif status == "REJECTED" %}
-                  <span class="badge bg-danger">Reverted</span>
-                {% elif status == "COMPLETED" %}
-                  <span class="badge bg-secondary">Completed</span>
+                {% if tr.beneficiary_count is not None %}
+                  {{ tr.beneficiary_count }}
+                {% else %}
+                  {{ tr.beneficiaries.count }}
                 {% endif %}
               </td>
               <td>
                 {% if status == "BATCHING" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1">No actions necessary</a>
+                  <span class="badge bg-success">Batches in Creation</span>
                 {% elif status == "PENDING" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
+                  <span class="badge bg-warning text-dark">Pending Approval</span>
                 {% elif status == "ONGOING" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
+                  <span class="badge bg-info text-dark">Ongoing</span>
                 {% elif status == "REJECTED" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1">No actions necessary</a>
+                  <span class="badge bg-danger">Reverted</span>
                 {% elif status == "COMPLETED" %}
-                  <a class="btn btn-sm btn-outline-secondary ms-1" href="{% url 'dmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
+                  <span class="badge bg-secondary">Completed</span>
+                {% else %}
+                  <span class="badge bg-light text-dark">{{ tr.status }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if status == "BATCHING" %}
+                  <span class="text-muted small">No actions necessary</span>
+                {% else %}
+                  <a class="btn btn-sm btn-outline-primary ms-1" href="{% url 'bmmu_request_detail' tr.id %}" title="View Details" class="btn btn-flat btn-sm btn-info view-details"><i class="fa fa-eye"></i></a>
                 {% endif %}
               </td>
             </tr>
@@ -95,8 +109,8 @@
 <script>
   // auto-submit when user changes status filter
   (function(){
-    const sel = document.getElementById('dmmu_status');
-    const form = document.getElementById('dmmu-status-form');
+    const sel = document.getElementById('bmmu_status');
+    const form = document.getElementById('bmmu-status-form');
     if(sel && form){
       sel.addEventListener('change', function(){ form.submit(); });
     }
